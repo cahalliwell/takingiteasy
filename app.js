@@ -2845,6 +2845,39 @@ const loginStyles = StyleSheet.create({
     fontSize: 16,
     color: palette.gold,
   },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: theme.space(2),
+  },
+  modalCard: {
+    backgroundColor: palette.card,
+    borderRadius: theme.radius,
+    borderWidth: 1,
+    borderColor: palette.border,
+    padding: theme.space(2.5),
+    shadowColor: palette.goldDeep,
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 6,
+    width: "100%",
+    maxWidth: 420,
+  },
+  modalTitle: {
+    fontFamily: fonts.title,
+    fontSize: 22,
+    color: palette.ink,
+    marginBottom: theme.space(1),
+  },
+  modalMessage: {
+    fontFamily: fonts.body,
+    fontSize: 15,
+    color: palette.ink,
+    lineHeight: 22,
+  },
 });
 
 const loginGradientColors = [
@@ -2858,6 +2891,11 @@ function LoginScreen() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [mode, setMode] = useState(null);
+  const navigation = useNavigation();
+
+  const handleForgotPassword = useCallback(() => {
+    navigation.navigate("ForgotPassword");
+  }, [navigation]);
 
   const handleAuth = async (type) => {
     if (!email.trim() || !password) {
@@ -2945,6 +2983,12 @@ function LoginScreen() {
                 Use the credentials associated with your Supabase profile.
               </Text>
 
+              <Pressable onPress={handleForgotPassword} style={{ alignSelf: "flex-start" }}>
+                <Text style={[loginStyles.helperText, { color: palette.goldDeep }]}> 
+                  Forgot Password?
+                </Text>
+              </Pressable>
+
               <View style={loginStyles.buttonRow}>
                 <Pressable
                   style={[loginStyles.button, loginStyles.buttonPrimary]}
@@ -2969,6 +3013,224 @@ function LoginScreen() {
                   )}
                 </Pressable>
               </View>
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
+    </LinearGradient>
+  );
+}
+
+function ForgotPasswordScreen() {
+  const [email, setEmail] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [dialogVisible, setDialogVisible] = useState(false);
+  const navigation = useNavigation();
+
+  const handleSendLink = useCallback(async () => {
+    const trimmed = email.trim();
+    if (!trimmed) {
+      Alert.alert("Missing email", "Please enter the email linked to your account.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmed, {
+        redirectTo: "ichinginsightsai://auth/reset",
+      });
+      if (error) throw error;
+      setDialogVisible(true);
+    } catch (error) {
+      Alert.alert(
+        "Reset email not sent",
+        error?.message || "We couldn't send the email. Please try again."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }, [email]);
+
+  const handleCloseDialog = useCallback(() => {
+    setDialogVisible(false);
+    navigation.navigate("Login");
+  }, [navigation]);
+
+  return (
+    <LinearGradient
+      colors={loginGradientColors}
+      style={loginStyles.gradient}
+      start={{ x: 0.2, y: 0 }}
+      end={{ x: 0.8, y: 1 }}
+    >
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
+      >
+        <SafeAreaView style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={loginStyles.container} keyboardShouldPersistTaps="handled">
+            <View style={loginStyles.card}>
+              <View style={loginStyles.titleRow}>
+                <Ionicons name="lock-open-outline" size={28} color={palette.goldDeep} />
+                <Text style={loginStyles.title}>Forgot Password</Text>
+              </View>
+              <Text style={loginStyles.subtitle}>
+                Enter your account email and we will send you a link to reset your password.
+              </Text>
+
+              <Text style={loginStyles.label}>Email</Text>
+              <TextInput
+                value={email}
+                onChangeText={setEmail}
+                placeholder="you@example.com"
+                placeholderTextColor={palette.inkMuted}
+                autoCapitalize="none"
+                autoComplete="email"
+                keyboardType="email-address"
+                textContentType="emailAddress"
+                style={loginStyles.input}
+              />
+
+              <GoldButton full onPress={handleSendLink} loading={submitting}>
+                Send reset link
+              </GoldButton>
+
+              <Pressable onPress={() => navigation.goBack()} style={{ marginTop: theme.space(1) }}>
+                <Text style={[loginStyles.helperText, { color: palette.goldDeep }]}>Back to Login</Text>
+              </Pressable>
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
+
+      <Modal transparent visible={dialogVisible} animationType="fade" onRequestClose={handleCloseDialog}>
+        <View style={loginStyles.modalBackdrop}>
+          <View style={loginStyles.modalCard}>
+            <Text style={loginStyles.modalTitle}>Check your email</Text>
+            <Text style={loginStyles.modalMessage}>
+              We have sent a password reset link to {email.trim() || "your inbox"}. Tap the link to
+              continue resetting your password.
+            </Text>
+            <GoldButton onPress={handleCloseDialog}>Back to Login</GoldButton>
+          </View>
+        </View>
+      </Modal>
+    </LinearGradient>
+  );
+}
+
+function ResetPasswordScreen() {
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const navigation = useNavigation();
+  const { completePasswordResetFlow } = useAuth();
+  const { session } = useAuth();
+
+  const handleReset = useCallback(async () => {
+    const trimmed = newPassword.trim();
+    const confirm = confirmPassword.trim();
+    if (!trimmed || !confirm) {
+      Alert.alert("Missing password", "Please enter and confirm your new password.");
+      return;
+    }
+    if (trimmed.length < 8) {
+      Alert.alert("Password too short", "Passwords must be at least 8 characters.");
+      return;
+    }
+    if (trimmed !== confirm) {
+      Alert.alert("Passwords do not match", "Ensure both passwords match before continuing.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: trimmed });
+      if (error) throw error;
+      completePasswordResetFlow();
+      await supabase.auth.signOut();
+      navigation.dispatch(
+        CommonActions.reset({
+          index: 0,
+          routes: [{ name: "Login" }],
+        })
+      );
+      Alert.alert("Password updated", "Please sign in with your new password.");
+    } catch (error) {
+      Alert.alert(
+        "Unable to reset password",
+        error?.message || "Request a new reset email and try again."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }, [confirmPassword, completePasswordResetFlow, navigation, newPassword]);
+
+  const handleCancel = useCallback(async () => {
+    completePasswordResetFlow();
+    await supabase.auth.signOut();
+    navigation.dispatch(
+      CommonActions.reset({
+        index: 0,
+        routes: [{ name: "Login" }],
+      })
+    );
+  }, [completePasswordResetFlow, navigation]);
+
+  return (
+    <LinearGradient
+      colors={loginGradientColors}
+      style={loginStyles.gradient}
+      start={{ x: 0.2, y: 0 }}
+      end={{ x: 0.8, y: 1 }}
+    >
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
+      >
+        <SafeAreaView style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={loginStyles.container} keyboardShouldPersistTaps="handled">
+            <View style={loginStyles.card}>
+              <View style={loginStyles.titleRow}>
+                <Ionicons name="refresh-outline" size={28} color={palette.goldDeep} />
+                <Text style={loginStyles.title}>Reset Your Password</Text>
+              </View>
+              <Text style={loginStyles.subtitle}>
+                {session
+                  ? "Choose a new password for your account."
+                  : "Follow the link from your email first, then set a new password."}
+              </Text>
+
+              <Text style={loginStyles.label}>New Password</Text>
+              <TextInput
+                value={newPassword}
+                onChangeText={setNewPassword}
+                placeholder="Enter a secure password"
+                placeholderTextColor={palette.inkMuted}
+                secureTextEntry
+                textContentType="newPassword"
+                style={loginStyles.input}
+              />
+
+              <Text style={loginStyles.label}>Confirm New Password</Text>
+              <TextInput
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Re-enter your new password"
+                placeholderTextColor={palette.inkMuted}
+                secureTextEntry
+                textContentType="newPassword"
+                style={loginStyles.input}
+              />
+
+              <GoldButton full onPress={handleReset} loading={submitting}>
+                Update password
+              </GoldButton>
+
+              <Pressable onPress={handleCancel} style={{ marginTop: theme.space(1) }}>
+                <Text style={[loginStyles.helperText, { color: palette.goldDeep }]}>Back to Login</Text>
+              </Pressable>
             </View>
           </ScrollView>
         </SafeAreaView>
@@ -6161,78 +6423,87 @@ function SettingsScreen({ navigation }) {
 
   return (
     <GradientBackground>
-      <SafeAreaView style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={stylesSettings.container}>
-          <Pressable onPress={() => navigation.goBack()} style={stylesSettings.backButton}>
-            <Ionicons name="chevron-back" size={20} color={palette.ink} />
-            <Text style={stylesSettings.backLabel}>Back</Text>
-          </Pressable>
-          <Text style={stylesSettings.title}>Settings</Text>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
+      >
+        <SafeAreaView style={{ flex: 1 }}>
+          <ScrollView
+            contentContainerStyle={stylesSettings.container}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Pressable onPress={() => navigation.goBack()} style={stylesSettings.backButton}>
+              <Ionicons name="chevron-back" size={20} color={palette.ink} />
+              <Text style={stylesSettings.backLabel}>Back</Text>
+            </Pressable>
+            <Text style={stylesSettings.title}>Settings</Text>
 
-          <SectionCard>
-            <Pressable onPress={handleOpenPremium} style={stylesSettings.row}>
-              <Text style={stylesSettings.rowLabel}>Premium</Text>
-              <Ionicons name="chevron-forward" size={18} color={palette.inkMuted} />
-            </Pressable>
-            <View style={stylesSettings.rowDivider} />
-            <Pressable onPress={handleRateApp} style={stylesSettings.row}>
-              <Text style={stylesSettings.rowLabel}>Rate app</Text>
-              <Ionicons name="chevron-forward" size={18} color={palette.inkMuted} />
-            </Pressable>
-            <View style={stylesSettings.rowDivider} />
-            <Pressable onPress={handleShareApp} style={stylesSettings.row}>
-              <Text style={stylesSettings.rowLabel}>Share app</Text>
-              <Ionicons name="chevron-forward" size={18} color={palette.inkMuted} />
-            </Pressable>
-            <View style={stylesSettings.rowDivider} />
-            <Pressable
-              onPress={() => handleOpenLink("https://aichinginsights.com/privacy")}
-              style={stylesSettings.row}
-            >
-              <Text style={stylesSettings.rowLabel}>Privacy Policy</Text>
-              <Ionicons name="chevron-forward" size={18} color={palette.inkMuted} />
-            </Pressable>
-            <View style={stylesSettings.rowDivider} />
-            <Pressable
-              onPress={() => handleOpenLink("https://aichinginsights.com/terms")}
-              style={stylesSettings.row}
-            >
-              <Text style={stylesSettings.rowLabel}>Terms and Conditions</Text>
-              <Ionicons name="chevron-forward" size={18} color={palette.inkMuted} />
-            </Pressable>
-          </SectionCard>
+            <SectionCard>
+              <Pressable onPress={handleOpenPremium} style={stylesSettings.row}>
+                <Text style={stylesSettings.rowLabel}>Premium</Text>
+                <Ionicons name="chevron-forward" size={18} color={palette.inkMuted} />
+              </Pressable>
+              <View style={stylesSettings.rowDivider} />
+              <Pressable onPress={handleRateApp} style={stylesSettings.row}>
+                <Text style={stylesSettings.rowLabel}>Rate app</Text>
+                <Ionicons name="chevron-forward" size={18} color={palette.inkMuted} />
+              </Pressable>
+              <View style={stylesSettings.rowDivider} />
+              <Pressable onPress={handleShareApp} style={stylesSettings.row}>
+                <Text style={stylesSettings.rowLabel}>Share app</Text>
+                <Ionicons name="chevron-forward" size={18} color={palette.inkMuted} />
+              </Pressable>
+              <View style={stylesSettings.rowDivider} />
+              <Pressable
+                onPress={() => handleOpenLink("https://aichinginsights.com/privacy")}
+                style={stylesSettings.row}
+              >
+                <Text style={stylesSettings.rowLabel}>Privacy Policy</Text>
+                <Ionicons name="chevron-forward" size={18} color={palette.inkMuted} />
+              </Pressable>
+              <View style={stylesSettings.rowDivider} />
+              <Pressable
+                onPress={() => handleOpenLink("https://aichinginsights.com/terms")}
+                style={stylesSettings.row}
+              >
+                <Text style={stylesSettings.rowLabel}>Terms and Conditions</Text>
+                <Ionicons name="chevron-forward" size={18} color={palette.inkMuted} />
+              </Pressable>
+            </SectionCard>
 
-          <SectionCard>
-            <Text style={stylesSettings.feedbackTitle}>Feedback</Text>
-            <Text style={stylesSettings.feedbackHint}>
-              Share your reflections or suggestions. Your email app will open when you submit.
-            </Text>
-            <TextInput
-              value={feedback}
-              onChangeText={setFeedback}
-              placeholder="Type your feedback here"
-              placeholderTextColor={palette.inkMuted}
-              multiline
-              style={stylesSettings.feedbackInput}
-            />
-            <GoldButton
-              full
-              onPress={handleSubmitFeedback}
-              icon={<Ionicons name="send-outline" size={18} color={palette.white} />}
-            >
-              Send Feedback
-            </GoldButton>
-          </SectionCard>
+            <SectionCard>
+              <Text style={stylesSettings.feedbackTitle}>Feedback</Text>
+              <Text style={stylesSettings.feedbackHint}>
+                Share your reflections or suggestions. Your email app will open when you submit.
+              </Text>
+              <TextInput
+                value={feedback}
+                onChangeText={setFeedback}
+                placeholder="Type your feedback here"
+                placeholderTextColor={palette.inkMuted}
+                multiline
+                style={stylesSettings.feedbackInput}
+              />
+              <GoldButton
+                full
+                onPress={handleSubmitFeedback}
+                icon={<Ionicons name="send-outline" size={18} color={palette.white} />}
+              >
+                Send Feedback
+              </GoldButton>
+            </SectionCard>
 
-          <SectionCard style={stylesSettings.dangerCard}>
-            <Text style={stylesSettings.dangerTitle}>Delete account</Text>
-            <Text style={stylesSettings.dangerHint}>
-              Permanently remove your profile and all saved data. This action cannot be undone.
-            </Text>
-            <DeleteAccountButton loading={isDeleting} onPress={confirmDeleteAccount} />
-          </SectionCard>
-        </ScrollView>
-      </SafeAreaView>
+            <SectionCard style={stylesSettings.dangerCard}>
+              <Text style={stylesSettings.dangerTitle}>Delete account</Text>
+              <Text style={stylesSettings.dangerHint}>
+                Permanently remove your profile and all saved data. This action cannot be undone.
+              </Text>
+              <DeleteAccountButton loading={isDeleting} onPress={confirmDeleteAccount} />
+            </SectionCard>
+          </ScrollView>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
     </GradientBackground>
   );
 }
@@ -6330,10 +6601,15 @@ const navTheme = {
   colors: { ...DefaultTheme.colors, background: "transparent" },
 };
 
-function AuthStackScreen() {
+function AuthStackScreen({ passwordResetRequested = false }) {
   return (
-    <AuthStack.Navigator screenOptions={{ headerShown: false }}>
+    <AuthStack.Navigator
+      screenOptions={{ headerShown: false }}
+      initialRouteName={passwordResetRequested ? "ResetPassword" : "Login"}
+    >
       <AuthStack.Screen name="Login" component={LoginScreen} />
+      <AuthStack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+      <AuthStack.Screen name="ResetPassword" component={ResetPasswordScreen} />
     </AuthStack.Navigator>
   );
 }
@@ -6407,10 +6683,12 @@ function MainTabs() {
 export default function App() {
   const [marcellusLoaded] = useMarcellus({ Marcellus_400Regular });
   const [loraLoaded] = useLora({ Lora_400Regular, Lora_600SemiBold });
+  const navigationRef = useRef(null);
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const [passwordResetRequested, setPasswordResetRequested] = useState(false);
 
   const fetchProfile = useCallback(async () => {
     const userId = session?.user?.id;
@@ -6437,6 +6715,14 @@ export default function App() {
     }
   }, [session?.user?.id]);
 
+  const beginPasswordResetFlow = useCallback(() => {
+    setPasswordResetRequested(true);
+  }, []);
+
+  const completePasswordResetFlow = useCallback(() => {
+    setPasswordResetRequested(false);
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
     supabase.auth
@@ -6455,9 +6741,12 @@ export default function App() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((event, newSession) => {
       setSession(newSession);
       setAuthReady(true);
+      if (event === "PASSWORD_RECOVERY") {
+        setPasswordResetRequested(true);
+      }
     });
 
     return () => {
@@ -6465,6 +6754,45 @@ export default function App() {
       subscription?.unsubscribe();
     };
   }, []);
+
+  const handleAuthLink = useCallback(
+    async (url) => {
+      if (!url || !url.includes("auth/reset")) return;
+      try {
+        const { error } = await supabase.auth.exchangeCodeForSession(url);
+        if (error) throw error;
+        beginPasswordResetFlow();
+      } catch (error) {
+        console.log("Password reset link error:", error?.message || error);
+        Alert.alert(
+          "Password reset",
+          "We couldn't open that link. Please request a new reset email."
+        );
+      }
+    },
+    [beginPasswordResetFlow]
+  );
+
+  useEffect(() => {
+    const resolveInitialUrl = async () => {
+      try {
+        const initialUrl = await Linking.getInitialURL();
+        if (initialUrl) {
+          await handleAuthLink(initialUrl);
+        }
+      } catch (error) {
+        console.log("Initial URL error:", error?.message || error);
+      }
+    };
+
+    resolveInitialUrl();
+
+    const subscription = Linking.addEventListener("url", (event) => {
+      handleAuthLink(event.url);
+    });
+
+    return () => subscription.remove();
+  }, [handleAuthLink]);
 
   useEffect(() => {
     if (!authReady) return;
@@ -6507,6 +6835,9 @@ export default function App() {
       subscriptionTier: resolvedSubscriptionTier,
       revenueCatCustomerInfo: revenueCatValue?.customerInfo ?? null,
       revenueCatEntitlements: revenueCatValue?.activeEntitlementIds ?? [],
+      passwordResetRequested,
+      beginPasswordResetFlow,
+      completePasswordResetFlow,
     }),
     [
       session,
@@ -6519,17 +6850,26 @@ export default function App() {
       resolvedSubscriptionTier,
       revenueCatValue?.customerInfo,
       revenueCatValue?.activeEntitlementIds,
+      passwordResetRequested,
+      beginPasswordResetFlow,
+      completePasswordResetFlow,
     ]
   );
 
   if (!marcellusLoaded || !loraLoaded || !authReady) return null;
 
+  const navigationKey = passwordResetRequested ? "reset-flow" : session ? "main" : "auth";
+
   return (
     <AuthContext.Provider value={authValue}>
       <RevenueCatContext.Provider value={revenueCatValue || defaultRevenueCatState}>
         <JournalProvider>
-          <NavigationContainer theme={navTheme}>
-            {session ? <MainTabs /> : <AuthStackScreen />}
+          <NavigationContainer ref={navigationRef} key={navigationKey} theme={navTheme}>
+            {passwordResetRequested || !session ? (
+              <AuthStackScreen passwordResetRequested={passwordResetRequested} />
+            ) : (
+              <MainTabs />
+            )}
           </NavigationContainer>
         </JournalProvider>
       </RevenueCatContext.Provider>
