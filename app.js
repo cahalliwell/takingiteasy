@@ -62,7 +62,7 @@ import Svg, {
   Text as SvgText,
   Circle as SvgCircle,
 } from "react-native-svg";
-import { BarChart } from "react-native-chart-kit";
+import { BarChart as GiftedBarChart } from "react-native-gifted-charts";
 import { createClient } from "@supabase/supabase-js";
 
 let Purchases = null;
@@ -840,6 +840,13 @@ const MONTH_KEYS = [
 const MOCK_WEEKLY = WEEKDAYS.map((weekday) => ({ weekday, readings: 0 }));
 const MOCK_MONTHLY = MONTH_KEYS.map((month) => ({ month, readings: 0 }));
 const MOCK_TOP_CASTS = [];
+const DEMO_HEXAGRAM_OCCURRENCES = [
+  { hexagram: 1, total: 8 },
+  { hexagram: 11, total: 6 },
+  { hexagram: 23, total: 4 },
+  { hexagram: 44, total: 5 },
+  { hexagram: 52, total: 3 },
+];
 
 function useInsightsWeekly() {
   const [data, setData] = useState(MOCK_WEEKLY);
@@ -1234,25 +1241,31 @@ function CounterRow({ label, value, loading }) {
   );
 }
 
-function HexagonLabel({ cx, cy, value, size = "small", fill = palette.white, stroke = palette.gold }) {
-  const dimension = size === "medium" ? 42 : 32;
-  const scale = dimension / 100;
-  const transform = `translate(${cx - 50 * scale}, ${cy - 50 * scale}) scale(${scale})`;
+function HexagonLabel({
+  value,
+  size = "small",
+  fill = palette.white,
+  stroke = palette.gold,
+  style,
+}) {
+  const dimension = size === "medium" ? 46 : 38;
 
   return (
-    <G transform={transform}>
-      <Polygon points={HEX_POINTS} fill={fill} stroke={stroke} strokeWidth={4} />
-      <SvgText
-        x={50}
-        y={58}
-        textAnchor="middle"
-        fontSize={size === "medium" ? 40 : 34}
-        fontFamily={fonts.bodyBold}
-        fill={stroke}
-      >
-        {value}
-      </SvgText>
-    </G>
+    <View style={[stylesInsights.hexagonWrapper, style]}>
+      <Svg width={dimension} height={dimension} viewBox="0 0 100 100">
+        <Polygon points={HEX_POINTS} fill={fill} stroke={stroke} strokeWidth={4} />
+        <SvgText
+          x={50}
+          y={58}
+          textAnchor="middle"
+          fontSize={size === "medium" ? 34 : 30}
+          fontFamily={fonts.bodyBold}
+          fill={stroke}
+        >
+          {value}
+        </SvgText>
+      </Svg>
+    </View>
   );
 }
 
@@ -1268,35 +1281,57 @@ function useInsightsChartDimensions(styleRef, minWidth = 200) {
   return { chartWidth, chartHeight };
 }
 
+function buildYAxisTicks(values, sections = 4) {
+  const maxValue = Math.max(...values, 0);
+  if (maxValue <= 0) {
+    const labels = Array.from({ length: sections + 1 }, (_, index) => index);
+    return { labels, maxValue: sections, sections };
+  }
+
+  const roughStep = maxValue / sections;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(roughStep, 1))));
+  const normalizedStep = Math.max(1, Math.ceil(roughStep / magnitude) * magnitude);
+  const targetMax = normalizedStep * sections;
+  const labels = Array.from({ length: sections + 1 }, (_, index) => index * normalizedStep);
+
+  return { labels, maxValue: targetMax, sections };
+}
+
+function computeBarLayout(chartWidth, itemCount) {
+  const safeCount = Math.max(itemCount, 1);
+  const availableWidth = Math.max(chartWidth - theme.space(2), 160);
+  const estimatedBarWidth = availableWidth / (safeCount * 2.2);
+  const barWidth = Math.min(38, Math.max(18, estimatedBarWidth));
+  const spacing = Math.max(10, (availableWidth - barWidth * safeCount) / Math.max(safeCount, 1));
+  const initialSpacing = Math.max(spacing * 0.75, 12);
+
+  return { barWidth, spacing, initialSpacing };
+}
+
 function WeeklyChart({ data, loading }) {
   const chartData = useMemo(() => (Array.isArray(data) && data.length ? data : MOCK_WEEKLY), [data]);
   const hasData = chartData.some((item) => (item?.readings || 0) > 0);
   const progress = useChartProgress([JSON.stringify(chartData)], loading || !hasData);
   const animatedValues = chartData.map((item) => (hasData ? item.readings * progress : 0));
   const { chartWidth, chartHeight } = useInsightsChartDimensions(stylesInsights.barChart);
-
-  const chartConfig = useMemo(
-    () => ({
-      backgroundColor: palette.card,
-      backgroundGradientFrom: palette.card,
-      backgroundGradientTo: palette.card,
-      decimalPlaces: 0,
-      color: (opacity = 1) => palette.gold,
-      fillShadowGradient: palette.gold,
-      fillShadowGradientOpacity: 1,
-      barPercentage: 0.55,
-      propsForBackgroundLines: {
-        stroke: palette.border,
-        strokeDasharray: "",
-      },
-      labelColor: (opacity = 1) => palette.inkMuted,
-      propsForLabels: {
-        fontFamily: fonts.body,
-        fontSize: 12,
-      },
-    }),
-    []
+  const rawValues = chartData.map((item) => item?.readings || 0);
+  const { labels: yAxisLabels, maxValue: axisMax, sections: sectionCount } = useMemo(
+    () => buildYAxisTicks(rawValues, 4),
+    [rawValues]
   );
+  const { barWidth, spacing, initialSpacing } = useMemo(
+    () => computeBarLayout(chartWidth, chartData.length),
+    [chartWidth, chartData.length]
+  );
+  const bars = chartData.map((item, index) => ({
+    value: animatedValues[index],
+    label: item?.weekday || "",
+    frontColor: palette.gold,
+    topLabelComponent:
+      rawValues[index] > 0 ? (
+        <HexagonLabel value={Math.round(rawValues[index])} />
+      ) : null,
+  }));
 
   if (loading) {
     return <ShimmerPlaceholder height={200} style={stylesInsights.chartPlaceholder} />;
@@ -1310,48 +1345,28 @@ function WeeklyChart({ data, loading }) {
     );
   }
 
-  const values = animatedValues;
-  const labels = chartData.map((item) => item?.weekday || "");
-  const chartKitData = {
-    labels,
-    datasets: [
-      {
-        data: values,
-      },
-    ],
-  };
-
   return (
-    <BarChart
+    <GiftedBarChart
       style={stylesInsights.barChart}
-      data={chartKitData}
+      data={bars}
       width={chartWidth}
       height={chartHeight}
-      chartConfig={chartConfig}
-      fromZero
-      withHorizontalLabels={false}
-      withVerticalLabels
-      withInnerLines
-      withHorizontalLines
-      withVerticalLines={false}
-      segments={4}
-      showBarTops={false}
-      showValuesOnTopOfBars={false}
-      yAxisSuffix=""
-      barRadius={12}
-      flatColor
-      renderCustomBarContent={({ index, value, x, y, width: barWidth }) => {
-        if (!chartData[index] || value <= 0) return null;
-        const cy = Math.max(y - 18, 18);
-        return (
-          <HexagonLabel
-            key={`${chartData[index]?.weekday || "day"}-${index}`}
-            cx={x + barWidth / 2}
-            cy={cy}
-            value={Math.round(chartData[index].readings)}
-          />
-        );
-      }}
+      barWidth={barWidth}
+      spacing={spacing}
+      initialSpacing={initialSpacing}
+      noOfSections={sectionCount}
+      maxValue={axisMax}
+      yAxisLabelTexts={yAxisLabels.map((label) => `${label}`)}
+      yAxisLabelWidth={48}
+      yAxisTextStyle={stylesInsights.yAxisLabel}
+      xAxisLabelTextStyle={stylesInsights.xAxisLabel}
+      xAxisThickness={StyleSheet.hairlineWidth}
+      yAxisThickness={StyleSheet.hairlineWidth}
+      xAxisColor={palette.border}
+      yAxisColor={palette.border}
+      rulesColor={palette.border}
+      rulesType="solid"
+      hideRules={false}
     />
   );
 }
@@ -1365,29 +1380,24 @@ function MonthlyChart({ data, loading }) {
     stylesInsights.barChartTall,
     220
   );
-
-  const chartConfig = useMemo(
-    () => ({
-      backgroundColor: palette.card,
-      backgroundGradientFrom: palette.card,
-      backgroundGradientTo: palette.card,
-      decimalPlaces: 0,
-      color: (opacity = 1) => palette.gold,
-      fillShadowGradient: palette.gold,
-      fillShadowGradientOpacity: 1,
-      barPercentage: 0.6,
-      propsForBackgroundLines: {
-        stroke: palette.border,
-        strokeDasharray: "",
-      },
-      labelColor: (opacity = 1) => palette.inkMuted,
-      propsForLabels: {
-        fontFamily: fonts.body,
-        fontSize: 12,
-      },
-    }),
-    []
+  const rawValues = chartData.map((item) => item?.readings || 0);
+  const { labels: yAxisLabels, maxValue: axisMax, sections: sectionCount } = useMemo(
+    () => buildYAxisTicks(rawValues, 5),
+    [rawValues]
   );
+  const { barWidth, spacing, initialSpacing } = useMemo(
+    () => computeBarLayout(chartWidth, chartData.length),
+    [chartWidth, chartData.length]
+  );
+  const bars = chartData.map((item, index) => ({
+    value: animatedValues[index],
+    label: item?.month || "",
+    frontColor: palette.gold,
+    topLabelComponent:
+      rawValues[index] > 0 ? (
+        <HexagonLabel value={Math.round(rawValues[index])} size="small" />
+      ) : null,
+  }));
 
   if (loading) {
     return <ShimmerPlaceholder height={220} style={stylesInsights.chartPlaceholder} />;
@@ -1401,49 +1411,28 @@ function MonthlyChart({ data, loading }) {
     );
   }
 
-  const values = animatedValues;
-  const labels = chartData.map((item) => item?.month || "");
-  const chartKitData = {
-    labels,
-    datasets: [
-      {
-        data: values,
-      },
-    ],
-  };
-
   return (
-    <BarChart
+    <GiftedBarChart
       style={stylesInsights.barChartTall}
-      data={chartKitData}
+      data={bars}
       width={chartWidth}
       height={chartHeight}
-      chartConfig={chartConfig}
-      fromZero
-      withHorizontalLabels={false}
-      withVerticalLabels
-      withInnerLines
-      withHorizontalLines
-      withVerticalLines={false}
-      segments={5}
-      showBarTops={false}
-      showValuesOnTopOfBars={false}
-      yAxisSuffix=""
-      barRadius={12}
-      flatColor
-      renderCustomBarContent={({ index, value, x, y, width: barWidth }) => {
-        if (!chartData[index] || value <= 0) return null;
-        const cy = Math.max(y - 18, 18);
-        return (
-          <HexagonLabel
-            key={`${chartData[index]?.month || "month"}-${index}`}
-            cx={x + barWidth / 2}
-            cy={cy}
-            value={Math.round(chartData[index].readings)}
-            size="small"
-          />
-        );
-      }}
+      barWidth={barWidth}
+      spacing={spacing}
+      initialSpacing={initialSpacing}
+      noOfSections={sectionCount}
+      maxValue={axisMax}
+      yAxisLabelTexts={yAxisLabels.map((label) => `${label}`)}
+      yAxisLabelWidth={52}
+      yAxisTextStyle={stylesInsights.yAxisLabel}
+      xAxisLabelTextStyle={stylesInsights.xAxisLabel}
+      xAxisThickness={StyleSheet.hairlineWidth}
+      yAxisThickness={StyleSheet.hairlineWidth}
+      xAxisColor={palette.border}
+      yAxisColor={palette.border}
+      rulesColor={palette.border}
+      rulesType="solid"
+      hideRules={false}
     />
   );
 }
@@ -1475,29 +1464,28 @@ function TopCastsChart({ data, loading }) {
     hasData ? (item.total_casts || 0) * progress : 0
   );
   const { chartWidth, chartHeight } = useInsightsChartDimensions(stylesInsights.barChart);
-
-  const chartConfig = useMemo(
-    () => ({
-      backgroundColor: palette.card,
-      backgroundGradientFrom: palette.card,
-      backgroundGradientTo: palette.card,
-      decimalPlaces: 0,
-      color: (opacity = 1) => palette.gold,
-      fillShadowGradient: palette.gold,
-      fillShadowGradientOpacity: 1,
-      barPercentage: 0.55,
-      propsForBackgroundLines: {
-        stroke: palette.border,
-        strokeDasharray: "",
-      },
-      labelColor: (opacity = 1) => palette.ink,
-      propsForLabels: {
-        fontFamily: fonts.bodyBold,
-        fontSize: 12,
-      },
-    }),
-    []
+  const rawValues = chartData.map((item) => item.total_casts || 0);
+  const { labels: yAxisLabels, maxValue: axisMax, sections: sectionCount } = useMemo(
+    () => buildYAxisTicks(rawValues, 4),
+    [rawValues]
   );
+  const { barWidth, spacing, initialSpacing } = useMemo(
+    () => computeBarLayout(chartWidth, chartData.length),
+    [chartWidth, chartData.length]
+  );
+  const bars = chartData.map((item, index) => ({
+    value: animatedValues[index],
+    label: item?.hexagram_primary != null ? `Hex ${item.hexagram_primary}` : "",
+    frontColor: palette.gold,
+    topLabelComponent:
+      rawValues[index] > 0 ? (
+        <HexagonLabel
+          value={Math.round(rawValues[index])}
+          size="small"
+          style={stylesInsights.hexagonLabelTight}
+        />
+      ) : null,
+  }));
 
   if (loading) {
     return <ShimmerPlaceholder height={220} style={stylesInsights.chartPlaceholder} />;
@@ -1513,51 +1501,83 @@ function TopCastsChart({ data, loading }) {
     );
   }
 
-  const labels = chartData.map((item) =>
-    item?.hexagram_primary != null ? `Hex ${item.hexagram_primary}` : ""
-  );
-  const chartKitData = {
-    labels,
-    datasets: [
-      {
-        data: animatedValues,
-      },
-    ],
-  };
-
   return (
-    <BarChart
+    <GiftedBarChart
       style={stylesInsights.barChart}
-      data={chartKitData}
+      data={bars}
       width={chartWidth}
       height={chartHeight}
-      chartConfig={chartConfig}
-      fromZero
-      withHorizontalLabels={false}
-      withVerticalLabels
-      withInnerLines
-      withHorizontalLines
-      withVerticalLines={false}
-      segments={4}
-      showBarTops={false}
-      showValuesOnTopOfBars={false}
-      yAxisSuffix=""
-      barRadius={12}
-      flatColor
-      renderCustomBarContent={({ index, value, x, y, width: barWidth }) => {
-        if (!chartData[index] || value <= 0) return null;
-        const cy = Math.max(y - 18, 18);
-        return (
-          <HexagonLabel
-            key={`top-cast-${chartData[index]?.hexagram_primary ?? index}-${index}`}
-            cx={x + barWidth / 2}
-            cy={cy}
-            value={Math.round(chartData[index].total_casts)}
-            size="small"
-          />
-        );
-      }}
+      barWidth={barWidth}
+      spacing={spacing}
+      initialSpacing={initialSpacing}
+      noOfSections={sectionCount}
+      maxValue={axisMax}
+      yAxisLabelTexts={yAxisLabels.map((label) => `${label}`)}
+      yAxisLabelWidth={52}
+      yAxisTextStyle={stylesInsights.yAxisLabel}
+      xAxisLabelTextStyle={stylesInsights.xAxisLabelBold}
+      xAxisThickness={StyleSheet.hairlineWidth}
+      yAxisThickness={StyleSheet.hairlineWidth}
+      xAxisColor={palette.border}
+      yAxisColor={palette.border}
+      rulesColor={palette.border}
+      rulesType="solid"
+      hideRules={false}
     />
+  );
+}
+
+function HexagramChartExample() {
+  const { chartWidth, chartHeight } = useInsightsChartDimensions(stylesInsights.barChart);
+  const values = useMemo(() => DEMO_HEXAGRAM_OCCURRENCES.map((item) => item.total), []);
+  const { labels: yAxisLabels, maxValue: axisMax, sections: sectionCount } = useMemo(
+    () => buildYAxisTicks(values, 4),
+    [values]
+  );
+  const { barWidth, spacing, initialSpacing } = useMemo(
+    () => computeBarLayout(chartWidth, DEMO_HEXAGRAM_OCCURRENCES.length),
+    [chartWidth]
+  );
+  const bars = useMemo(
+    () =>
+      DEMO_HEXAGRAM_OCCURRENCES.map((item) => ({
+        value: item.total,
+        label: `Hex ${item.hexagram}`,
+        frontColor: palette.gold,
+        topLabelComponent: <HexagonLabel value={item.total} size="small" />,
+      })),
+    []
+  );
+
+  return (
+    <View>
+      <Text style={stylesInsights.sectionTitle}>Hexagram occurrences (example)</Text>
+      <Text style={stylesInsights.sectionCaption}>
+        Self-contained demo using react-native-gifted-charts for reference.
+      </Text>
+      <GiftedBarChart
+        style={stylesInsights.barChart}
+        data={bars}
+        width={chartWidth}
+        height={chartHeight}
+        barWidth={barWidth}
+        spacing={spacing}
+        initialSpacing={initialSpacing}
+        noOfSections={sectionCount}
+        maxValue={axisMax}
+        yAxisLabelTexts={yAxisLabels.map((label) => `${label}`)}
+        yAxisLabelWidth={52}
+        yAxisTextStyle={stylesInsights.yAxisLabel}
+        xAxisLabelTextStyle={stylesInsights.xAxisLabel}
+        xAxisThickness={StyleSheet.hairlineWidth}
+        yAxisThickness={StyleSheet.hairlineWidth}
+        xAxisColor={palette.border}
+        yAxisColor={palette.border}
+        rulesColor={palette.border}
+        rulesType="solid"
+        hideRules={false}
+      />
+    </View>
   );
 }
 
@@ -1869,6 +1889,12 @@ function InsightsOverviewScreen() {
           <Text style={stylesInsights.sectionCaption}>Most frequent hexagrams</Text>
           <TopCastsChart data={topCastsData} loading={topCastsLoading} />
         </MotionView>
+
+        {__DEV__ ? (
+          <MotionView style={stylesInsights.chartCard} {...motionProps(280)}>
+            <HexagramChartExample />
+          </MotionView>
+        ) : null}
       </ScrollView>
     </LinearGradient>
   );
@@ -2012,6 +2038,29 @@ const stylesInsights = StyleSheet.create({
   },
   barChartTall: {
     height: 220,
+  },
+  yAxisLabel: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    color: palette.inkMuted,
+  },
+  xAxisLabel: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    color: palette.inkMuted,
+  },
+  xAxisLabelBold: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 12,
+    color: palette.ink,
+  },
+  hexagonWrapper: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  hexagonLabelTight: {
+    marginBottom: 2,
   },
   chartPlaceholder: {
     borderRadius: theme.radius,
