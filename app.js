@@ -2916,6 +2916,8 @@ function LoginScreen() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [mode, setMode] = useState(null);
+  const [verificationDialogVisible, setVerificationDialogVisible] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState("");
   const navigation = useNavigation();
 
   const handleForgotPassword = useCallback(() => {
@@ -2942,6 +2944,8 @@ function LoginScreen() {
           password,
         });
         if (error) throw error;
+        setPendingEmail(email.trim());
+        setVerificationDialogVisible(true);
       }
     } catch (error) {
       Alert.alert(
@@ -2954,95 +2958,119 @@ function LoginScreen() {
     }
   };
 
+  const handleCloseVerificationDialog = useCallback(() => {
+    setVerificationDialogVisible(false);
+  }, []);
+
   return (
-    <LinearGradient
-      colors={loginGradientColors}
-      style={loginStyles.gradient}
-      start={{ x: 0.2, y: 0 }}
-      end={{ x: 0.8, y: 1 }}
-    >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
+    <>
+      <LinearGradient
+        colors={loginGradientColors}
+        style={loginStyles.gradient}
+        start={{ x: 0.2, y: 0 }}
+        end={{ x: 0.8, y: 1 }}
       >
-        <SafeAreaView style={{ flex: 1 }}>
-          <ScrollView
-            contentContainerStyle={loginStyles.container}
-            keyboardShouldPersistTaps="handled"
-          >
-            <View style={loginStyles.card}>
-              <View style={loginStyles.titleRow}>
-                <Ionicons name="sparkles-outline" size={28} color={palette.goldDeep} />
-                <Text style={loginStyles.title}>Welcome Back</Text>
-              </View>
-              <Text style={loginStyles.subtitle}>
-                Sign in or create an account to continue your journey with the I Ching.
-              </Text>
-
-              <Text style={loginStyles.label}>Email</Text>
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder="you@example.com"
-                placeholderTextColor={palette.inkMuted}
-                autoCapitalize="none"
-                autoComplete="email"
-                keyboardType="email-address"
-                textContentType="emailAddress"
-                style={loginStyles.input}
-              />
-
-              <Text style={loginStyles.label}>Password</Text>
-              <TextInput
-                value={password}
-                onChangeText={setPassword}
-                placeholder="Enter a secure password"
-                placeholderTextColor={palette.inkMuted}
-                secureTextEntry
-                textContentType="password"
-                style={loginStyles.input}
-              />
-
-              <Text style={loginStyles.helperText}>
-                Use the credentials associated with your Supabase profile.
-              </Text>
-
-              <Pressable onPress={handleForgotPassword} style={{ alignSelf: "flex-start" }}>
-                <Text style={[loginStyles.helperText, { color: palette.goldDeep }]}> 
-                  Forgot Password?
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}
+        >
+          <SafeAreaView style={{ flex: 1 }}>
+            <ScrollView
+              contentContainerStyle={loginStyles.container}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={loginStyles.card}>
+                <View style={loginStyles.titleRow}>
+                  <Ionicons name="sparkles-outline" size={28} color={palette.goldDeep} />
+                  <Text style={loginStyles.title}>Welcome Back</Text>
+                </View>
+                <Text style={loginStyles.subtitle}>
+                  Sign in or create an account to continue your journey with the I Ching.
                 </Text>
-              </Pressable>
 
-              <View style={loginStyles.buttonRow}>
-                <Pressable
-                  style={[loginStyles.button, loginStyles.buttonPrimary]}
-                  onPress={() => handleAuth("login")}
-                  disabled={submitting}
-                >
-                  {submitting && mode === "login" ? (
-                    <ActivityIndicator color={palette.white} />
-                  ) : (
-                    <Text style={loginStyles.buttonTextPrimary}>Login</Text>
-                  )}
+                <Text style={loginStyles.label}>Email</Text>
+                <TextInput
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="you@example.com"
+                  placeholderTextColor={palette.inkMuted}
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  keyboardType="email-address"
+                  textContentType="emailAddress"
+                  style={loginStyles.input}
+                />
+
+                <Text style={loginStyles.label}>Password</Text>
+                <TextInput
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="Enter a secure password"
+                  placeholderTextColor={palette.inkMuted}
+                  secureTextEntry
+                  textContentType="password"
+                  style={loginStyles.input}
+                />
+
+                <Text style={loginStyles.helperText}>
+                  Use the credentials associated with your Supabase profile.
+                </Text>
+
+                <Pressable onPress={handleForgotPassword} style={{ alignSelf: "flex-start" }}>
+                  <Text style={[loginStyles.helperText, { color: palette.goldDeep }]}>
+                    Forgot Password?
+                  </Text>
                 </Pressable>
-                <Pressable
-                  style={[loginStyles.button, loginStyles.buttonSecondary]}
-                  onPress={() => handleAuth("signup")}
-                  disabled={submitting}
-                >
-                  {submitting && mode === "signup" ? (
-                    <ActivityIndicator color={palette.gold} />
-                  ) : (
-                    <Text style={loginStyles.buttonTextSecondary}>Sign Up</Text>
-                  )}
-                </Pressable>
+
+                <View style={loginStyles.buttonRow}>
+                  <Pressable
+                    style={[loginStyles.button, loginStyles.buttonPrimary]}
+                    onPress={() => handleAuth("login")}
+                    disabled={submitting}
+                  >
+                    {submitting && mode === "login" ? (
+                      <ActivityIndicator color={palette.white} />
+                    ) : (
+                      <Text style={loginStyles.buttonTextPrimary}>Login</Text>
+                    )}
+                  </Pressable>
+                  <Pressable
+                    style={[loginStyles.button, loginStyles.buttonSecondary]}
+                    onPress={() => handleAuth("signup")}
+                    disabled={submitting}
+                  >
+                    {submitting && mode === "signup" ? (
+                      <ActivityIndicator color={palette.gold} />
+                    ) : (
+                      <Text style={loginStyles.buttonTextSecondary}>Sign Up</Text>
+                    )}
+                  </Pressable>
+                </View>
               </View>
-            </View>
-          </ScrollView>
-        </SafeAreaView>
-      </KeyboardAvoidingView>
-    </LinearGradient>
+            </ScrollView>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </LinearGradient>
+
+      <Modal
+        transparent
+        visible={verificationDialogVisible}
+        animationType="fade"
+        onRequestClose={handleCloseVerificationDialog}
+      >
+        <View style={loginStyles.modalBackdrop}>
+          <View style={loginStyles.modalCard}>
+            <Text style={loginStyles.modalTitle}>Verify your email</Text>
+            <Text style={loginStyles.modalMessage}>
+              We have sent a verification link to {pendingEmail || "your inbox"}. Please check your
+              email and confirm your account before signing in.
+            </Text>
+            <GoldButton onPress={handleCloseVerificationDialog}>Got it</GoldButton>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
