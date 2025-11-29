@@ -63,6 +63,7 @@ import Svg, {
   Text as SvgText,
   Circle as SvgCircle,
 } from "react-native-svg";
+// Charts: expo install react-native-chart-kit react-native-svg
 import { BarChart } from "react-native-chart-kit";
 import { createClient } from "@supabase/supabase-js";
 
@@ -1253,7 +1254,7 @@ function HexagonBarLabel({ x, y, text, size = "small" }) {
 
   return (
     <G transform={`translate(${translateX}, ${translateY}) scale(${scale})`}>
-      <Polygon points={HEX_POINTS} fill={palette.white} stroke={palette.gold} strokeWidth={4} />
+      <Polygon points={HEX_POINTS} fill={palette.white} stroke={palette.gold} strokeWidth={3} />
       <SvgText
         x={50}
         y={60}
@@ -1268,16 +1269,49 @@ function HexagonBarLabel({ x, y, text, size = "small" }) {
   );
 }
 
-function useInsightsChartDimensions(styleRef, minWidth = 200) {
+function YAxisLabels({ labels, height, width = 48 }) {
+  const formatTick = useCallback((tick) => {
+    if (Number.isInteger(tick)) return `${tick}`;
+    const rounded = Number(tick.toFixed(1));
+    return `${rounded}`;
+  }, []);
+
+  return (
+    <View style={[stylesInsights.yAxisColumn, { height, width }]}>
+      {labels.map((_, index) => {
+        const reversedIndex = labels.length - 1 - index;
+        const tick = labels[reversedIndex];
+        return (
+          <Text key={`y-label-${reversedIndex}`} style={stylesInsights.yAxisLabel}>
+            {formatTick(tick)}
+          </Text>
+        );
+      })}
+    </View>
+  );
+}
+
+function ChartWithYAxis({ labels, chartHeight, chartWidth, children, yAxisWidth = 48 }) {
+  return (
+    <View style={[stylesInsights.chartRow, { height: chartHeight }]}> 
+      <YAxisLabels labels={labels} height={chartHeight} width={yAxisWidth} />
+      <View style={[stylesInsights.chartContent, { height: chartHeight, width: chartWidth }]}>
+        {children}
+      </View>
+    </View>
+  );
+}
+
+function useInsightsChartDimensions(styleRef, minWidth = 200, yAxisWidth = 48) {
   const { width: windowWidth } = useWindowDimensions();
   const baseWidth = Dimensions.get("window").width;
   const measuredWidth = windowWidth || baseWidth;
   const horizontalPadding = theme.space(3) * 2 + theme.space(2) * 2;
-  const rawWidth = Math.max(0, measuredWidth - horizontalPadding);
+  const rawWidth = Math.max(0, measuredWidth - horizontalPadding - yAxisWidth);
   const chartWidth = Math.max(minWidth, rawWidth);
   const flattenedStyle = StyleSheet.flatten(styleRef) || {};
   const chartHeight = flattenedStyle.height || flattenedStyle.minHeight || 180;
-  return { chartWidth, chartHeight };
+  return { chartWidth, chartHeight, yAxisWidth };
 }
 
 function buildYAxisTicks(values, sections = 4) {
@@ -1334,7 +1368,7 @@ function WeeklyChart({ data, loading }) {
   const hasData = chartData.some((item) => (item?.readings || 0) > 0);
   const progress = useChartProgress([JSON.stringify(chartData)], loading || !hasData);
   const animatedValues = chartData.map((item) => (hasData ? item.readings * progress : 0));
-  const { chartWidth, chartHeight } = useInsightsChartDimensions(stylesInsights.barChart);
+  const { chartWidth, chartHeight, yAxisWidth } = useInsightsChartDimensions(stylesInsights.barChart);
   const rawValues = chartData.map((item) => item?.readings || 0);
   const { labels: yAxisLabels } = useMemo(() => buildYAxisTicks(rawValues, 4), [rawValues]);
   const { barPercentage } = useMemo(
@@ -1366,38 +1400,47 @@ function WeeklyChart({ data, loading }) {
   }
 
   return (
-    <BarChart
-      data={chartKitData}
-      width={chartWidth}
-      height={chartHeight}
-      fromZero
-      segments={yAxisLabels.length - 1}
-      chartConfig={buildChartKitConfig(barPercentage)}
-      style={stylesInsights.barChart}
-      showValuesOnTopOfBars={false}
-      withCustomBarColorFromData={false}
-      flatColor
-      barPercentage={barPercentage}
-      formatYLabel={(value) => `${Math.round(Number(value))}`}
-      renderBar={({ x, y, width, height, index }) => (
-        <G key={`weekly-bar-${index}`}>
-          <SvgRect
-            x={x}
-            y={y}
-            rx={8}
-            width={width}
-            height={height}
-            fill={palette.gold}
-          />
-          <HexagonBarLabel
-            x={x + width / 2}
-            y={y}
-            text={rawValues[index] > 0 ? `${Math.round(rawValues[index])}` : null}
-            size="medium"
-          />
-        </G>
-      )}
-    />
+    <ChartWithYAxis
+      labels={yAxisLabels}
+      chartHeight={chartHeight}
+      chartWidth={chartWidth}
+      yAxisWidth={yAxisWidth}
+    >
+      <BarChart
+        data={chartKitData}
+        width={chartWidth}
+        height={chartHeight}
+        fromZero
+        segments={yAxisLabels.length - 1}
+        chartConfig={buildChartKitConfig(barPercentage)}
+        style={stylesInsights.barChart}
+        showValuesOnTopOfBars={false}
+        withCustomBarColorFromData={false}
+        flatColor
+        barPercentage={barPercentage}
+        withHorizontalLabels={false}
+        verticalLabelRotation={0}
+        formatYLabel={() => ""}
+        renderBar={({ x, y, width, height, index }) => (
+          <G key={`weekly-bar-${index}`}>
+            <SvgRect
+              x={x}
+              y={y}
+              rx={8}
+              width={width}
+              height={height}
+              fill={palette.gold}
+            />
+            <HexagonBarLabel
+              x={x + width / 2}
+              y={y}
+              text={rawValues[index] > 0 ? `${Math.round(rawValues[index])}` : null}
+              size="medium"
+            />
+          </G>
+        )}
+      />
+    </ChartWithYAxis>
   );
 }
 
@@ -1406,7 +1449,7 @@ function MonthlyChart({ data, loading }) {
   const hasData = chartData.some((item) => (item?.readings || 0) > 0);
   const progress = useChartProgress([JSON.stringify(chartData)], loading || !hasData);
   const animatedValues = chartData.map((item) => (hasData ? item.readings * progress : 0));
-  const { chartWidth, chartHeight } = useInsightsChartDimensions(
+  const { chartWidth, chartHeight, yAxisWidth } = useInsightsChartDimensions(
     stylesInsights.barChartTall,
     220
   );
@@ -1441,37 +1484,47 @@ function MonthlyChart({ data, loading }) {
   }
 
   return (
-    <BarChart
-      data={chartKitData}
-      width={chartWidth}
-      height={chartHeight}
-      fromZero
-      segments={yAxisLabels.length - 1}
-      chartConfig={buildChartKitConfig(barPercentage)}
-      style={stylesInsights.barChartTall}
-      showValuesOnTopOfBars={false}
-      withCustomBarColorFromData={false}
-      flatColor
-      barPercentage={barPercentage}
-      formatYLabel={(value) => `${Math.round(Number(value))}`}
-      renderBar={({ x, y, width, height, index }) => (
-        <G key={`monthly-bar-${index}`}>
-          <SvgRect
-            x={x}
-            y={y}
-            rx={8}
-            width={width}
-            height={height}
-            fill={palette.gold}
-          />
-          <HexagonBarLabel
-            x={x + width / 2}
-            y={y}
-            text={rawValues[index] > 0 ? `${Math.round(rawValues[index])}` : null}
-          />
-        </G>
-      )}
-    />
+    <ChartWithYAxis
+      labels={yAxisLabels}
+      chartHeight={chartHeight}
+      chartWidth={chartWidth}
+      yAxisWidth={yAxisWidth}
+    >
+      <BarChart
+        data={chartKitData}
+        width={chartWidth}
+        height={chartHeight}
+        fromZero
+        segments={yAxisLabels.length - 1}
+        chartConfig={buildChartKitConfig(barPercentage)}
+        style={stylesInsights.barChartTall}
+        showValuesOnTopOfBars={false}
+        withCustomBarColorFromData={false}
+        flatColor
+        barPercentage={barPercentage}
+        withHorizontalLabels={false}
+        verticalLabelRotation={12}
+        xLabelsOffset={6}
+        formatYLabel={() => ""}
+        renderBar={({ x, y, width, height, index }) => (
+          <G key={`monthly-bar-${index}`}>
+            <SvgRect
+              x={x}
+              y={y}
+              rx={8}
+              width={width}
+              height={height}
+              fill={palette.gold}
+            />
+            <HexagonBarLabel
+              x={x + width / 2}
+              y={y}
+              text={rawValues[index] > 0 ? `${Math.round(rawValues[index])}` : null}
+            />
+          </G>
+        )}
+      />
+    </ChartWithYAxis>
   );
 }
 
@@ -1501,7 +1554,7 @@ function TopCastsChart({ data, loading }) {
   const animatedValues = chartData.map((item) =>
     hasData ? (item.total_casts || 0) * progress : 0
   );
-  const { chartWidth, chartHeight } = useInsightsChartDimensions(stylesInsights.barChart);
+  const { chartWidth, chartHeight, yAxisWidth } = useInsightsChartDimensions(stylesInsights.barChart);
   const rawValues = chartData.map((item) => item.total_casts || 0);
   const { labels: yAxisLabels } = useMemo(() => buildYAxisTicks(rawValues, 4), [rawValues]);
   const { barPercentage } = useMemo(
@@ -1537,43 +1590,53 @@ function TopCastsChart({ data, loading }) {
   }
 
   return (
-    <BarChart
-      data={chartKitData}
-      width={chartWidth}
-      height={chartHeight}
-      fromZero
-      segments={yAxisLabels.length - 1}
-      chartConfig={buildChartKitConfig(barPercentage)}
-      style={stylesInsights.barChartTall}
-      showValuesOnTopOfBars={false}
-      withCustomBarColorFromData={false}
-      flatColor
-      barPercentage={barPercentage}
-      formatYLabel={(value) => `${Math.round(Number(value))}`}
-      renderBar={({ x, y, width, height, index }) => (
-        <G key={`top-bar-${index}`}>
-          <SvgRect
-            x={x}
-            y={y}
-            rx={8}
-            width={width}
-            height={height}
-            fill={palette.gold}
-          />
-          <HexagonBarLabel
-            x={x + width / 2}
-            y={y}
-            text={rawValues[index] > 0 ? `${Math.round(rawValues[index])}` : null}
-            size="small"
-          />
-        </G>
-      )}
-    />
+    <ChartWithYAxis
+      labels={yAxisLabels}
+      chartHeight={chartHeight}
+      chartWidth={chartWidth}
+      yAxisWidth={yAxisWidth}
+    >
+      <BarChart
+        data={chartKitData}
+        width={chartWidth}
+        height={chartHeight}
+        fromZero
+        segments={yAxisLabels.length - 1}
+        chartConfig={buildChartKitConfig(barPercentage)}
+        style={stylesInsights.barChartTall}
+        showValuesOnTopOfBars={false}
+        withCustomBarColorFromData={false}
+        flatColor
+        barPercentage={barPercentage}
+        withHorizontalLabels={false}
+        verticalLabelRotation={12}
+        xLabelsOffset={4}
+        formatYLabel={() => ""}
+        renderBar={({ x, y, width, height, index }) => (
+          <G key={`top-bar-${index}`}>
+            <SvgRect
+              x={x}
+              y={y}
+              rx={8}
+              width={width}
+              height={height}
+              fill={palette.gold}
+            />
+            <HexagonBarLabel
+              x={x + width / 2}
+              y={y}
+              text={rawValues[index] > 0 ? `${Math.round(rawValues[index])}` : null}
+              size="small"
+            />
+          </G>
+        )}
+      />
+    </ChartWithYAxis>
   );
 }
 
 function HexagramChartExample() {
-  const { chartWidth, chartHeight } = useInsightsChartDimensions(stylesInsights.barChart);
+  const { chartWidth, chartHeight, yAxisWidth } = useInsightsChartDimensions(stylesInsights.barChart);
   const values = useMemo(() => DEMO_HEXAGRAM_OCCURRENCES.map((item) => item.total), []);
   const { labels: yAxisLabels } = useMemo(() => buildYAxisTicks(values, 4), [values]);
   const { barPercentage } = useMemo(
@@ -1598,38 +1661,48 @@ function HexagramChartExample() {
       <Text style={stylesInsights.sectionCaption}>
         Self-contained demo using react-native-chart-kit for reference.
       </Text>
-      <BarChart
-        data={chartKitData}
-        width={chartWidth}
-        height={chartHeight}
-        fromZero
-        segments={yAxisLabels.length - 1}
-        chartConfig={buildChartKitConfig(barPercentage)}
-        style={stylesInsights.barChart}
-        showValuesOnTopOfBars={false}
-        withCustomBarColorFromData={false}
-        flatColor
-        barPercentage={barPercentage}
-        formatYLabel={(value) => `${Math.round(Number(value))}`}
-        renderBar={({ x, y, width, height, index }) => (
-          <G key={`demo-bar-${index}`}>
-            <SvgRect
-              x={x}
-              y={y}
-              rx={8}
-              width={width}
-              height={height}
-              fill={palette.gold}
-            />
-            <HexagonBarLabel
-              x={x + width / 2}
-              y={y}
-              text={`${Math.round(DEMO_HEXAGRAM_OCCURRENCES[index].total)}`}
-              size="small"
-            />
-          </G>
-        )}
-      />
+      <ChartWithYAxis
+        labels={yAxisLabels}
+        chartHeight={chartHeight}
+        chartWidth={chartWidth}
+        yAxisWidth={yAxisWidth}
+      >
+        <BarChart
+          data={chartKitData}
+          width={chartWidth}
+          height={chartHeight}
+          fromZero
+          segments={yAxisLabels.length - 1}
+          chartConfig={buildChartKitConfig(barPercentage)}
+          style={stylesInsights.barChart}
+          showValuesOnTopOfBars={false}
+          withCustomBarColorFromData={false}
+          flatColor
+          barPercentage={barPercentage}
+          withHorizontalLabels={false}
+          verticalLabelRotation={10}
+          xLabelsOffset={4}
+          formatYLabel={() => ""}
+          renderBar={({ x, y, width, height, index }) => (
+            <G key={`demo-bar-${index}`}>
+              <SvgRect
+                x={x}
+                y={y}
+                rx={8}
+                width={width}
+                height={height}
+                fill={palette.gold}
+              />
+              <HexagonBarLabel
+                x={x + width / 2}
+                y={y}
+                text={`${Math.round(DEMO_HEXAGRAM_OCCURRENCES[index].total)}`}
+                size="small"
+              />
+            </G>
+          )}
+        />
+      </ChartWithYAxis>
     </View>
   );
 }
@@ -2091,6 +2164,18 @@ const stylesInsights = StyleSheet.create({
   },
   barChartTall: {
     height: 220,
+  },
+  chartRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+  },
+  chartContent: {
+    flex: 1,
+  },
+  yAxisColumn: {
+    justifyContent: "space-between",
+    paddingRight: theme.space(1),
+    alignItems: "flex-end",
   },
   yAxisLabel: {
     fontFamily: fonts.body,
