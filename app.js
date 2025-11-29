@@ -62,7 +62,7 @@ import Svg, {
   Text as SvgText,
   Circle as SvgCircle,
 } from "react-native-svg";
-import { BarChart as GiftedBarChart } from "react-native-gifted-charts";
+import { VictoryAxis, VictoryBar, VictoryChart } from "victory-native";
 import { createClient } from "@supabase/supabase-js";
 
 let Purchases = null;
@@ -1241,31 +1241,29 @@ function CounterRow({ label, value, loading }) {
   );
 }
 
-function HexagonLabel({
-  value,
-  size = "small",
-  fill = palette.white,
-  stroke = palette.gold,
-  style,
-}) {
-  const dimension = size === "medium" ? 46 : 38;
+function HexagonBarLabel({ x, y, text, size = "small" }) {
+  const labelText = Array.isArray(text) ? text[0] : text;
+  if (!labelText) return null;
+
+  const dimension = size === "medium" ? 30 : 26;
+  const scale = dimension / 100;
+  const translateX = x - dimension / 2;
+  const translateY = y - dimension - 6;
 
   return (
-    <View style={[stylesInsights.hexagonWrapper, style]}>
-      <Svg width={dimension} height={dimension} viewBox="0 0 100 100">
-        <Polygon points={HEX_POINTS} fill={fill} stroke={stroke} strokeWidth={4} />
-        <SvgText
-          x={50}
-          y={58}
-          textAnchor="middle"
-          fontSize={size === "medium" ? 34 : 30}
-          fontFamily={fonts.bodyBold}
-          fill={stroke}
-        >
-          {value}
-        </SvgText>
-      </Svg>
-    </View>
+    <G transform={`translate(${translateX}, ${translateY}) scale(${scale})`}>
+      <Polygon points={HEX_POINTS} fill={palette.white} stroke={palette.gold} strokeWidth={4} />
+      <SvgText
+        x={50}
+        y={60}
+        textAnchor="middle"
+        fontSize={size === "medium" ? 32 : 28}
+        fontFamily={fonts.bodyBold}
+        fill={palette.goldDeep}
+      >
+        {labelText}
+      </SvgText>
+    </G>
   );
 }
 
@@ -1299,13 +1297,12 @@ function buildYAxisTicks(values, sections = 4) {
 
 function computeBarLayout(chartWidth, itemCount) {
   const safeCount = Math.max(itemCount, 1);
-  const availableWidth = Math.max(chartWidth - theme.space(2), 160);
-  const estimatedBarWidth = availableWidth / (safeCount * 2.2);
-  const barWidth = Math.min(38, Math.max(18, estimatedBarWidth));
-  const spacing = Math.max(10, (availableWidth - barWidth * safeCount) / Math.max(safeCount, 1));
-  const initialSpacing = Math.max(spacing * 0.75, 12);
+  const availableWidth = Math.max(chartWidth - theme.space(4), 200);
+  const estimatedBarWidth = availableWidth / (safeCount * 2.4);
+  const barWidth = Math.min(36, Math.max(16, estimatedBarWidth));
+  const spacing = Math.max(18, (availableWidth - barWidth * safeCount) / Math.max(safeCount, 1));
 
-  return { barWidth, spacing, initialSpacing };
+  return { barWidth, domainPadding: { x: spacing, y: 12 } };
 }
 
 function WeeklyChart({ data, loading }) {
@@ -1315,22 +1312,18 @@ function WeeklyChart({ data, loading }) {
   const animatedValues = chartData.map((item) => (hasData ? item.readings * progress : 0));
   const { chartWidth, chartHeight } = useInsightsChartDimensions(stylesInsights.barChart);
   const rawValues = chartData.map((item) => item?.readings || 0);
-  const { labels: yAxisLabels, maxValue: axisMax, sections: sectionCount } = useMemo(
+  const { labels: yAxisLabels, maxValue: axisMax } = useMemo(
     () => buildYAxisTicks(rawValues, 4),
     [rawValues]
   );
-  const { barWidth, spacing, initialSpacing } = useMemo(
+  const { barWidth, domainPadding } = useMemo(
     () => computeBarLayout(chartWidth, chartData.length),
     [chartWidth, chartData.length]
   );
   const bars = chartData.map((item, index) => ({
-    value: animatedValues[index],
-    label: item?.weekday || "",
-    frontColor: palette.gold,
-    topLabelComponent:
-      rawValues[index] > 0 ? (
-        <HexagonLabel value={Math.round(rawValues[index])} />
-      ) : null,
+    x: item?.weekday || "",
+    y: animatedValues[index],
+    raw: rawValues[index],
   }));
 
   if (loading) {
@@ -1346,28 +1339,46 @@ function WeeklyChart({ data, loading }) {
   }
 
   return (
-    <GiftedBarChart
-      style={stylesInsights.barChart}
-      data={bars}
+    <VictoryChart
       width={chartWidth}
       height={chartHeight}
-      barWidth={barWidth}
-      spacing={spacing}
-      initialSpacing={initialSpacing}
-      noOfSections={sectionCount}
-      maxValue={axisMax}
-      yAxisLabelTexts={yAxisLabels.map((label) => `${label}`)}
-      yAxisLabelWidth={48}
-      yAxisTextStyle={stylesInsights.yAxisLabel}
-      xAxisLabelTextStyle={stylesInsights.xAxisLabel}
-      xAxisThickness={StyleSheet.hairlineWidth}
-      yAxisThickness={StyleSheet.hairlineWidth}
-      xAxisColor={palette.border}
-      yAxisColor={palette.border}
-      rulesColor={palette.border}
-      rulesType="solid"
-      hideRules={false}
-    />
+      padding={{ top: 24, bottom: 48, left: 64, right: 24 }}
+      domain={{ y: [0, axisMax || 0] }}
+      domainPadding={domainPadding}
+    >
+      <VictoryAxis
+        dependentAxis
+        tickValues={yAxisLabels}
+        tickFormat={(value) => `${value}`}
+        style={{
+          axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
+          grid: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
+          tickLabels: {
+            fill: palette.inkMuted,
+            fontSize: 12,
+            fontFamily: fonts.body,
+          },
+        }}
+      />
+      <VictoryAxis
+        tickFormat={(value) => value}
+        style={{
+          axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
+          tickLabels: {
+            fill: palette.inkMuted,
+            fontSize: 12,
+            fontFamily: fonts.body,
+          },
+        }}
+      />
+      <VictoryBar
+        barWidth={barWidth}
+        data={bars}
+        style={{ data: { fill: palette.gold } }}
+        labels={({ datum }) => (datum.raw > 0 ? `${Math.round(datum.raw)}` : null)}
+        labelComponent={<HexagonBarLabel size="medium" />}
+      />
+    </VictoryChart>
   );
 }
 
@@ -1381,22 +1392,18 @@ function MonthlyChart({ data, loading }) {
     220
   );
   const rawValues = chartData.map((item) => item?.readings || 0);
-  const { labels: yAxisLabels, maxValue: axisMax, sections: sectionCount } = useMemo(
+  const { labels: yAxisLabels, maxValue: axisMax } = useMemo(
     () => buildYAxisTicks(rawValues, 5),
     [rawValues]
   );
-  const { barWidth, spacing, initialSpacing } = useMemo(
+  const { barWidth, domainPadding } = useMemo(
     () => computeBarLayout(chartWidth, chartData.length),
     [chartWidth, chartData.length]
   );
   const bars = chartData.map((item, index) => ({
-    value: animatedValues[index],
-    label: item?.month || "",
-    frontColor: palette.gold,
-    topLabelComponent:
-      rawValues[index] > 0 ? (
-        <HexagonLabel value={Math.round(rawValues[index])} size="small" />
-      ) : null,
+    x: item?.month || "",
+    y: animatedValues[index],
+    raw: rawValues[index],
   }));
 
   if (loading) {
@@ -1412,28 +1419,46 @@ function MonthlyChart({ data, loading }) {
   }
 
   return (
-    <GiftedBarChart
-      style={stylesInsights.barChartTall}
-      data={bars}
+    <VictoryChart
       width={chartWidth}
       height={chartHeight}
-      barWidth={barWidth}
-      spacing={spacing}
-      initialSpacing={initialSpacing}
-      noOfSections={sectionCount}
-      maxValue={axisMax}
-      yAxisLabelTexts={yAxisLabels.map((label) => `${label}`)}
-      yAxisLabelWidth={52}
-      yAxisTextStyle={stylesInsights.yAxisLabel}
-      xAxisLabelTextStyle={stylesInsights.xAxisLabel}
-      xAxisThickness={StyleSheet.hairlineWidth}
-      yAxisThickness={StyleSheet.hairlineWidth}
-      xAxisColor={palette.border}
-      yAxisColor={palette.border}
-      rulesColor={palette.border}
-      rulesType="solid"
-      hideRules={false}
-    />
+      padding={{ top: 24, bottom: 52, left: 68, right: 24 }}
+      domain={{ y: [0, axisMax || 0] }}
+      domainPadding={domainPadding}
+    >
+      <VictoryAxis
+        dependentAxis
+        tickValues={yAxisLabels}
+        tickFormat={(value) => `${value}`}
+        style={{
+          axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
+          grid: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
+          tickLabels: {
+            fill: palette.inkMuted,
+            fontSize: 12,
+            fontFamily: fonts.body,
+          },
+        }}
+      />
+      <VictoryAxis
+        tickFormat={(value) => value}
+        style={{
+          axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
+          tickLabels: {
+            fill: palette.inkMuted,
+            fontSize: 12,
+            fontFamily: fonts.body,
+          },
+        }}
+      />
+      <VictoryBar
+        barWidth={barWidth}
+        data={bars}
+        style={{ data: { fill: palette.gold } }}
+        labels={({ datum }) => (datum.raw > 0 ? `${Math.round(datum.raw)}` : null)}
+        labelComponent={<HexagonBarLabel />}
+      />
+    </VictoryChart>
   );
 }
 
@@ -1465,26 +1490,18 @@ function TopCastsChart({ data, loading }) {
   );
   const { chartWidth, chartHeight } = useInsightsChartDimensions(stylesInsights.barChart);
   const rawValues = chartData.map((item) => item.total_casts || 0);
-  const { labels: yAxisLabels, maxValue: axisMax, sections: sectionCount } = useMemo(
+  const { labels: yAxisLabels, maxValue: axisMax } = useMemo(
     () => buildYAxisTicks(rawValues, 4),
     [rawValues]
   );
-  const { barWidth, spacing, initialSpacing } = useMemo(
+  const { barWidth, domainPadding } = useMemo(
     () => computeBarLayout(chartWidth, chartData.length),
     [chartWidth, chartData.length]
   );
   const bars = chartData.map((item, index) => ({
-    value: animatedValues[index],
-    label: item?.hexagram_primary != null ? `Hex ${item.hexagram_primary}` : "",
-    frontColor: palette.gold,
-    topLabelComponent:
-      rawValues[index] > 0 ? (
-        <HexagonLabel
-          value={Math.round(rawValues[index])}
-          size="small"
-          style={stylesInsights.hexagonLabelTight}
-        />
-      ) : null,
+    x: item?.hexagram_primary != null ? `Hex ${item.hexagram_primary}` : "",
+    y: animatedValues[index],
+    raw: rawValues[index],
   }));
 
   if (loading) {
@@ -1502,49 +1519,66 @@ function TopCastsChart({ data, loading }) {
   }
 
   return (
-    <GiftedBarChart
-      style={stylesInsights.barChart}
-      data={bars}
+    <VictoryChart
       width={chartWidth}
       height={chartHeight}
-      barWidth={barWidth}
-      spacing={spacing}
-      initialSpacing={initialSpacing}
-      noOfSections={sectionCount}
-      maxValue={axisMax}
-      yAxisLabelTexts={yAxisLabels.map((label) => `${label}`)}
-      yAxisLabelWidth={52}
-      yAxisTextStyle={stylesInsights.yAxisLabel}
-      xAxisLabelTextStyle={stylesInsights.xAxisLabelBold}
-      xAxisThickness={StyleSheet.hairlineWidth}
-      yAxisThickness={StyleSheet.hairlineWidth}
-      xAxisColor={palette.border}
-      yAxisColor={palette.border}
-      rulesColor={palette.border}
-      rulesType="solid"
-      hideRules={false}
-    />
+      padding={{ top: 24, bottom: 52, left: 68, right: 24 }}
+      domain={{ y: [0, axisMax || 0] }}
+      domainPadding={domainPadding}
+    >
+      <VictoryAxis
+        dependentAxis
+        tickValues={yAxisLabels}
+        tickFormat={(value) => `${value}`}
+        style={{
+          axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
+          grid: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
+          tickLabels: {
+            fill: palette.inkMuted,
+            fontSize: 12,
+            fontFamily: fonts.body,
+          },
+        }}
+      />
+      <VictoryAxis
+        tickFormat={(value) => value}
+        style={{
+          axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
+          tickLabels: {
+            fill: palette.ink,
+            fontSize: 12,
+            fontFamily: fonts.bodyBold,
+          },
+        }}
+      />
+      <VictoryBar
+        barWidth={barWidth}
+        data={bars}
+        style={{ data: { fill: palette.gold } }}
+        labels={({ datum }) => (datum.raw > 0 ? `${Math.round(datum.raw)}` : null)}
+        labelComponent={<HexagonBarLabel size="small" />}
+      />
+    </VictoryChart>
   );
 }
 
 function HexagramChartExample() {
   const { chartWidth, chartHeight } = useInsightsChartDimensions(stylesInsights.barChart);
   const values = useMemo(() => DEMO_HEXAGRAM_OCCURRENCES.map((item) => item.total), []);
-  const { labels: yAxisLabels, maxValue: axisMax, sections: sectionCount } = useMemo(
+  const { labels: yAxisLabels, maxValue: axisMax } = useMemo(
     () => buildYAxisTicks(values, 4),
     [values]
   );
-  const { barWidth, spacing, initialSpacing } = useMemo(
+  const { barWidth, domainPadding } = useMemo(
     () => computeBarLayout(chartWidth, DEMO_HEXAGRAM_OCCURRENCES.length),
     [chartWidth]
   );
   const bars = useMemo(
     () =>
       DEMO_HEXAGRAM_OCCURRENCES.map((item) => ({
-        value: item.total,
-        label: `Hex ${item.hexagram}`,
-        frontColor: palette.gold,
-        topLabelComponent: <HexagonLabel value={item.total} size="small" />,
+        x: `Hex ${item.hexagram}`,
+        y: item.total,
+        raw: item.total,
       })),
     []
   );
@@ -1553,30 +1587,48 @@ function HexagramChartExample() {
     <View>
       <Text style={stylesInsights.sectionTitle}>Hexagram occurrences (example)</Text>
       <Text style={stylesInsights.sectionCaption}>
-        Self-contained demo using react-native-gifted-charts for reference.
+        Self-contained demo using victory-native for reference.
       </Text>
-      <GiftedBarChart
-        style={stylesInsights.barChart}
-        data={bars}
+      <VictoryChart
         width={chartWidth}
         height={chartHeight}
-        barWidth={barWidth}
-        spacing={spacing}
-        initialSpacing={initialSpacing}
-        noOfSections={sectionCount}
-        maxValue={axisMax}
-        yAxisLabelTexts={yAxisLabels.map((label) => `${label}`)}
-        yAxisLabelWidth={52}
-        yAxisTextStyle={stylesInsights.yAxisLabel}
-        xAxisLabelTextStyle={stylesInsights.xAxisLabel}
-        xAxisThickness={StyleSheet.hairlineWidth}
-        yAxisThickness={StyleSheet.hairlineWidth}
-        xAxisColor={palette.border}
-        yAxisColor={palette.border}
-        rulesColor={palette.border}
-        rulesType="solid"
-        hideRules={false}
-      />
+        padding={{ top: 24, bottom: 48, left: 64, right: 24 }}
+        domain={{ y: [0, axisMax || 0] }}
+        domainPadding={domainPadding}
+      >
+        <VictoryAxis
+          dependentAxis
+          tickValues={yAxisLabels}
+          tickFormat={(value) => `${value}`}
+          style={{
+            axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
+            grid: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
+            tickLabels: {
+              fill: palette.inkMuted,
+              fontSize: 12,
+              fontFamily: fonts.body,
+            },
+          }}
+        />
+        <VictoryAxis
+          tickFormat={(value) => value}
+          style={{
+            axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
+            tickLabels: {
+              fill: palette.inkMuted,
+              fontSize: 12,
+              fontFamily: fonts.body,
+            },
+          }}
+        />
+        <VictoryBar
+          barWidth={barWidth}
+          data={bars}
+          style={{ data: { fill: palette.gold } }}
+          labels={({ datum }) => (datum.raw > 0 ? `${Math.round(datum.raw)}` : null)}
+          labelComponent={<HexagonBarLabel size="small" />}
+        />
+      </VictoryChart>
     </View>
   );
 }
@@ -2053,14 +2105,6 @@ const stylesInsights = StyleSheet.create({
     fontFamily: fonts.bodyBold,
     fontSize: 12,
     color: palette.ink,
-  },
-  hexagonWrapper: {
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
-  },
-  hexagonLabelTight: {
-    marginBottom: 2,
   },
   chartPlaceholder: {
     borderRadius: theme.radius,
