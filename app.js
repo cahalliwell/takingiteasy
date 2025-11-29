@@ -58,11 +58,12 @@ import Svg, {
   Path,
   Polygon,
   RadialGradient,
+  Rect as SvgRect,
   Stop,
   Text as SvgText,
   Circle as SvgCircle,
 } from "react-native-svg";
-import { VictoryAxis, VictoryBar, VictoryChart } from "victory-native";
+import { BarChart } from "react-native-chart-kit";
 import { createClient } from "@supabase/supabase-js";
 
 let Purchases = null;
@@ -1300,9 +1301,32 @@ function computeBarLayout(chartWidth, itemCount) {
   const availableWidth = Math.max(chartWidth - theme.space(4), 200);
   const estimatedBarWidth = availableWidth / (safeCount * 2.4);
   const barWidth = Math.min(36, Math.max(16, estimatedBarWidth));
-  const spacing = Math.max(18, (availableWidth - barWidth * safeCount) / Math.max(safeCount, 1));
+  const slotWidth = availableWidth / safeCount;
+  const barPercentage = Math.min(0.8, Math.max(0.32, barWidth / Math.max(slotWidth, 1)));
 
-  return { barWidth, domainPadding: { x: spacing, y: 12 } };
+  return { barPercentage, slotWidth, barWidth };
+}
+
+function buildChartKitConfig(barPercentage = 0.45) {
+  return {
+    backgroundColor: palette.parchmentA,
+    backgroundGradientFrom: palette.parchmentA,
+    backgroundGradientTo: palette.parchmentA,
+    decimalPlaces: 0,
+    barPercentage,
+    color: () => palette.gold,
+    labelColor: () => palette.inkMuted,
+    fillShadowGradient: palette.gold,
+    fillShadowGradientOpacity: 1,
+    propsForBackgroundLines: {
+      stroke: palette.border,
+      strokeWidth: StyleSheet.hairlineWidth,
+    },
+    propsForLabels: {
+      fontFamily: fonts.body,
+      fontSize: 12,
+    },
+  };
 }
 
 function WeeklyChart({ data, loading }) {
@@ -1312,19 +1336,22 @@ function WeeklyChart({ data, loading }) {
   const animatedValues = chartData.map((item) => (hasData ? item.readings * progress : 0));
   const { chartWidth, chartHeight } = useInsightsChartDimensions(stylesInsights.barChart);
   const rawValues = chartData.map((item) => item?.readings || 0);
-  const { labels: yAxisLabels, maxValue: axisMax } = useMemo(
-    () => buildYAxisTicks(rawValues, 4),
-    [rawValues]
-  );
-  const { barWidth, domainPadding } = useMemo(
+  const { labels: yAxisLabels } = useMemo(() => buildYAxisTicks(rawValues, 4), [rawValues]);
+  const { barPercentage } = useMemo(
     () => computeBarLayout(chartWidth, chartData.length),
     [chartWidth, chartData.length]
   );
-  const bars = chartData.map((item, index) => ({
-    x: item?.weekday || "",
-    y: animatedValues[index],
-    raw: rawValues[index],
-  }));
+  const chartKitData = useMemo(
+    () => ({
+      labels: chartData.map((item) => item?.weekday || ""),
+      datasets: [
+        {
+          data: animatedValues,
+        },
+      ],
+    }),
+    [chartData, animatedValues]
+  );
 
   if (loading) {
     return <ShimmerPlaceholder height={200} style={stylesInsights.chartPlaceholder} />;
@@ -1339,46 +1366,38 @@ function WeeklyChart({ data, loading }) {
   }
 
   return (
-    <VictoryChart
+    <BarChart
+      data={chartKitData}
       width={chartWidth}
       height={chartHeight}
-      padding={{ top: 24, bottom: 48, left: 64, right: 24 }}
-      domain={{ y: [0, axisMax || 0] }}
-      domainPadding={domainPadding}
-    >
-      <VictoryAxis
-        dependentAxis
-        tickValues={yAxisLabels}
-        tickFormat={(value) => `${value}`}
-        style={{
-          axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
-          grid: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
-          tickLabels: {
-            fill: palette.inkMuted,
-            fontSize: 12,
-            fontFamily: fonts.body,
-          },
-        }}
-      />
-      <VictoryAxis
-        tickFormat={(value) => value}
-        style={{
-          axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
-          tickLabels: {
-            fill: palette.inkMuted,
-            fontSize: 12,
-            fontFamily: fonts.body,
-          },
-        }}
-      />
-      <VictoryBar
-        barWidth={barWidth}
-        data={bars}
-        style={{ data: { fill: palette.gold } }}
-        labels={({ datum }) => (datum.raw > 0 ? `${Math.round(datum.raw)}` : null)}
-        labelComponent={<HexagonBarLabel size="medium" />}
-      />
-    </VictoryChart>
+      fromZero
+      segments={yAxisLabels.length - 1}
+      chartConfig={buildChartKitConfig(barPercentage)}
+      style={stylesInsights.barChart}
+      showValuesOnTopOfBars={false}
+      withCustomBarColorFromData={false}
+      flatColor
+      barPercentage={barPercentage}
+      formatYLabel={(value) => `${Math.round(Number(value))}`}
+      renderBar={({ x, y, width, height, index }) => (
+        <G key={`weekly-bar-${index}`}>
+          <SvgRect
+            x={x}
+            y={y}
+            rx={8}
+            width={width}
+            height={height}
+            fill={palette.gold}
+          />
+          <HexagonBarLabel
+            x={x + width / 2}
+            y={y}
+            text={rawValues[index] > 0 ? `${Math.round(rawValues[index])}` : null}
+            size="medium"
+          />
+        </G>
+      )}
+    />
   );
 }
 
@@ -1392,19 +1411,22 @@ function MonthlyChart({ data, loading }) {
     220
   );
   const rawValues = chartData.map((item) => item?.readings || 0);
-  const { labels: yAxisLabels, maxValue: axisMax } = useMemo(
-    () => buildYAxisTicks(rawValues, 5),
-    [rawValues]
-  );
-  const { barWidth, domainPadding } = useMemo(
+  const { labels: yAxisLabels } = useMemo(() => buildYAxisTicks(rawValues, 5), [rawValues]);
+  const { barPercentage } = useMemo(
     () => computeBarLayout(chartWidth, chartData.length),
     [chartWidth, chartData.length]
   );
-  const bars = chartData.map((item, index) => ({
-    x: item?.month || "",
-    y: animatedValues[index],
-    raw: rawValues[index],
-  }));
+  const chartKitData = useMemo(
+    () => ({
+      labels: chartData.map((item) => item?.month || ""),
+      datasets: [
+        {
+          data: animatedValues,
+        },
+      ],
+    }),
+    [chartData, animatedValues]
+  );
 
   if (loading) {
     return <ShimmerPlaceholder height={220} style={stylesInsights.chartPlaceholder} />;
@@ -1419,46 +1441,37 @@ function MonthlyChart({ data, loading }) {
   }
 
   return (
-    <VictoryChart
+    <BarChart
+      data={chartKitData}
       width={chartWidth}
       height={chartHeight}
-      padding={{ top: 24, bottom: 52, left: 68, right: 24 }}
-      domain={{ y: [0, axisMax || 0] }}
-      domainPadding={domainPadding}
-    >
-      <VictoryAxis
-        dependentAxis
-        tickValues={yAxisLabels}
-        tickFormat={(value) => `${value}`}
-        style={{
-          axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
-          grid: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
-          tickLabels: {
-            fill: palette.inkMuted,
-            fontSize: 12,
-            fontFamily: fonts.body,
-          },
-        }}
-      />
-      <VictoryAxis
-        tickFormat={(value) => value}
-        style={{
-          axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
-          tickLabels: {
-            fill: palette.inkMuted,
-            fontSize: 12,
-            fontFamily: fonts.body,
-          },
-        }}
-      />
-      <VictoryBar
-        barWidth={barWidth}
-        data={bars}
-        style={{ data: { fill: palette.gold } }}
-        labels={({ datum }) => (datum.raw > 0 ? `${Math.round(datum.raw)}` : null)}
-        labelComponent={<HexagonBarLabel />}
-      />
-    </VictoryChart>
+      fromZero
+      segments={yAxisLabels.length - 1}
+      chartConfig={buildChartKitConfig(barPercentage)}
+      style={stylesInsights.barChartTall}
+      showValuesOnTopOfBars={false}
+      withCustomBarColorFromData={false}
+      flatColor
+      barPercentage={barPercentage}
+      formatYLabel={(value) => `${Math.round(Number(value))}`}
+      renderBar={({ x, y, width, height, index }) => (
+        <G key={`monthly-bar-${index}`}>
+          <SvgRect
+            x={x}
+            y={y}
+            rx={8}
+            width={width}
+            height={height}
+            fill={palette.gold}
+          />
+          <HexagonBarLabel
+            x={x + width / 2}
+            y={y}
+            text={rawValues[index] > 0 ? `${Math.round(rawValues[index])}` : null}
+          />
+        </G>
+      )}
+    />
   );
 }
 
@@ -1490,19 +1503,24 @@ function TopCastsChart({ data, loading }) {
   );
   const { chartWidth, chartHeight } = useInsightsChartDimensions(stylesInsights.barChart);
   const rawValues = chartData.map((item) => item.total_casts || 0);
-  const { labels: yAxisLabels, maxValue: axisMax } = useMemo(
-    () => buildYAxisTicks(rawValues, 4),
-    [rawValues]
-  );
-  const { barWidth, domainPadding } = useMemo(
+  const { labels: yAxisLabels } = useMemo(() => buildYAxisTicks(rawValues, 4), [rawValues]);
+  const { barPercentage } = useMemo(
     () => computeBarLayout(chartWidth, chartData.length),
     [chartWidth, chartData.length]
   );
-  const bars = chartData.map((item, index) => ({
-    x: item?.hexagram_primary != null ? `Hex ${item.hexagram_primary}` : "",
-    y: animatedValues[index],
-    raw: rawValues[index],
-  }));
+  const chartKitData = useMemo(
+    () => ({
+      labels: chartData.map((item) =>
+        item?.hexagram_primary != null ? `Hex ${item.hexagram_primary}` : ""
+      ),
+      datasets: [
+        {
+          data: animatedValues,
+        },
+      ],
+    }),
+    [chartData, animatedValues]
+  );
 
   if (loading) {
     return <ShimmerPlaceholder height={220} style={stylesInsights.chartPlaceholder} />;
@@ -1519,67 +1537,58 @@ function TopCastsChart({ data, loading }) {
   }
 
   return (
-    <VictoryChart
+    <BarChart
+      data={chartKitData}
       width={chartWidth}
       height={chartHeight}
-      padding={{ top: 24, bottom: 52, left: 68, right: 24 }}
-      domain={{ y: [0, axisMax || 0] }}
-      domainPadding={domainPadding}
-    >
-      <VictoryAxis
-        dependentAxis
-        tickValues={yAxisLabels}
-        tickFormat={(value) => `${value}`}
-        style={{
-          axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
-          grid: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
-          tickLabels: {
-            fill: palette.inkMuted,
-            fontSize: 12,
-            fontFamily: fonts.body,
-          },
-        }}
-      />
-      <VictoryAxis
-        tickFormat={(value) => value}
-        style={{
-          axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
-          tickLabels: {
-            fill: palette.ink,
-            fontSize: 12,
-            fontFamily: fonts.bodyBold,
-          },
-        }}
-      />
-      <VictoryBar
-        barWidth={barWidth}
-        data={bars}
-        style={{ data: { fill: palette.gold } }}
-        labels={({ datum }) => (datum.raw > 0 ? `${Math.round(datum.raw)}` : null)}
-        labelComponent={<HexagonBarLabel size="small" />}
-      />
-    </VictoryChart>
+      fromZero
+      segments={yAxisLabels.length - 1}
+      chartConfig={buildChartKitConfig(barPercentage)}
+      style={stylesInsights.barChartTall}
+      showValuesOnTopOfBars={false}
+      withCustomBarColorFromData={false}
+      flatColor
+      barPercentage={barPercentage}
+      formatYLabel={(value) => `${Math.round(Number(value))}`}
+      renderBar={({ x, y, width, height, index }) => (
+        <G key={`top-bar-${index}`}>
+          <SvgRect
+            x={x}
+            y={y}
+            rx={8}
+            width={width}
+            height={height}
+            fill={palette.gold}
+          />
+          <HexagonBarLabel
+            x={x + width / 2}
+            y={y}
+            text={rawValues[index] > 0 ? `${Math.round(rawValues[index])}` : null}
+            size="small"
+          />
+        </G>
+      )}
+    />
   );
 }
 
 function HexagramChartExample() {
   const { chartWidth, chartHeight } = useInsightsChartDimensions(stylesInsights.barChart);
   const values = useMemo(() => DEMO_HEXAGRAM_OCCURRENCES.map((item) => item.total), []);
-  const { labels: yAxisLabels, maxValue: axisMax } = useMemo(
-    () => buildYAxisTicks(values, 4),
-    [values]
-  );
-  const { barWidth, domainPadding } = useMemo(
+  const { labels: yAxisLabels } = useMemo(() => buildYAxisTicks(values, 4), [values]);
+  const { barPercentage } = useMemo(
     () => computeBarLayout(chartWidth, DEMO_HEXAGRAM_OCCURRENCES.length),
     [chartWidth]
   );
-  const bars = useMemo(
-    () =>
-      DEMO_HEXAGRAM_OCCURRENCES.map((item) => ({
-        x: `Hex ${item.hexagram}`,
-        y: item.total,
-        raw: item.total,
-      })),
+  const chartKitData = useMemo(
+    () => ({
+      labels: DEMO_HEXAGRAM_OCCURRENCES.map((item) => `Hex ${item.hexagram}`),
+      datasets: [
+        {
+          data: DEMO_HEXAGRAM_OCCURRENCES.map((item) => item.total),
+        },
+      ],
+    }),
     []
   );
 
@@ -1587,48 +1596,40 @@ function HexagramChartExample() {
     <View>
       <Text style={stylesInsights.sectionTitle}>Hexagram occurrences (example)</Text>
       <Text style={stylesInsights.sectionCaption}>
-        Self-contained demo using victory-native for reference.
+        Self-contained demo using react-native-chart-kit for reference.
       </Text>
-      <VictoryChart
+      <BarChart
+        data={chartKitData}
         width={chartWidth}
         height={chartHeight}
-        padding={{ top: 24, bottom: 48, left: 64, right: 24 }}
-        domain={{ y: [0, axisMax || 0] }}
-        domainPadding={domainPadding}
-      >
-        <VictoryAxis
-          dependentAxis
-          tickValues={yAxisLabels}
-          tickFormat={(value) => `${value}`}
-          style={{
-            axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
-            grid: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
-            tickLabels: {
-              fill: palette.inkMuted,
-              fontSize: 12,
-              fontFamily: fonts.body,
-            },
-          }}
-        />
-        <VictoryAxis
-          tickFormat={(value) => value}
-          style={{
-            axis: { stroke: palette.border, strokeWidth: StyleSheet.hairlineWidth },
-            tickLabels: {
-              fill: palette.inkMuted,
-              fontSize: 12,
-              fontFamily: fonts.body,
-            },
-          }}
-        />
-        <VictoryBar
-          barWidth={barWidth}
-          data={bars}
-          style={{ data: { fill: palette.gold } }}
-          labels={({ datum }) => (datum.raw > 0 ? `${Math.round(datum.raw)}` : null)}
-          labelComponent={<HexagonBarLabel size="small" />}
-        />
-      </VictoryChart>
+        fromZero
+        segments={yAxisLabels.length - 1}
+        chartConfig={buildChartKitConfig(barPercentage)}
+        style={stylesInsights.barChart}
+        showValuesOnTopOfBars={false}
+        withCustomBarColorFromData={false}
+        flatColor
+        barPercentage={barPercentage}
+        formatYLabel={(value) => `${Math.round(Number(value))}`}
+        renderBar={({ x, y, width, height, index }) => (
+          <G key={`demo-bar-${index}`}>
+            <SvgRect
+              x={x}
+              y={y}
+              rx={8}
+              width={width}
+              height={height}
+              fill={palette.gold}
+            />
+            <HexagonBarLabel
+              x={x + width / 2}
+              y={y}
+              text={`${Math.round(DEMO_HEXAGRAM_OCCURRENCES[index].total)}`}
+              size="small"
+            />
+          </G>
+        )}
+      />
     </View>
   );
 }
