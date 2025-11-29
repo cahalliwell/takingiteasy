@@ -3548,7 +3548,11 @@ function ReadingModal({
     changingSummaries.length > 0;
 
   return (
-    <Modal visible={visible} animationType="slide">
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}
+    >
       <GradientBackground>
         <SafeAreaView style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={stylesReading.container}>
