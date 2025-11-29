@@ -26,7 +26,6 @@ import {
   View,
   useWindowDimensions,
   Share,
-  Dimensions,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -63,8 +62,6 @@ import Svg, {
   Text as SvgText,
   Circle as SvgCircle,
 } from "react-native-svg";
-// Charts: expo install react-native-chart-kit react-native-svg
-import { BarChart } from "react-native-chart-kit";
 import { createClient } from "@supabase/supabase-js";
 
 let Purchases = null;
@@ -842,13 +839,6 @@ const MONTH_KEYS = [
 const MOCK_WEEKLY = WEEKDAYS.map((weekday) => ({ weekday, readings: 0 }));
 const MOCK_MONTHLY = MONTH_KEYS.map((month) => ({ month, readings: 0 }));
 const MOCK_TOP_CASTS = [];
-const DEMO_HEXAGRAM_OCCURRENCES = [
-  { hexagram: 1, total: 8 },
-  { hexagram: 11, total: 6 },
-  { hexagram: 23, total: 4 },
-  { hexagram: 44, total: 5 },
-  { hexagram: 52, total: 3 },
-];
 
 function useInsightsWeekly() {
   const [data, setData] = useState(MOCK_WEEKLY);
@@ -1127,38 +1117,6 @@ function useAnimatedCounter(value, loading) {
   return display;
 }
 
-function useChartProgress(deps, disabled) {
-  const animatedValue = useRef(new Animated.Value(0)).current;
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    if (disabled) {
-      animatedValue.stopAnimation();
-      animatedValue.setValue(0);
-      setProgress(0);
-      return;
-    }
-    animatedValue.stopAnimation();
-    animatedValue.setValue(0);
-    const id = animatedValue.addListener(({ value }) => {
-      setProgress(value);
-    });
-    Animated.timing(animatedValue, {
-      toValue: 1,
-      duration: 700,
-      useNativeDriver: false,
-    }).start(() => {
-      animatedValue.removeListener(id);
-    });
-
-    return () => {
-      animatedValue.removeAllListeners();
-    };
-  }, [...deps, disabled]);
-
-  return progress;
-}
-
 function ShimmerPlaceholder({ height, style }) {
   const shimmer = useRef(new Animated.Value(0.3)).current;
 
@@ -1243,466 +1201,251 @@ function CounterRow({ label, value, loading }) {
   );
 }
 
-function HexagonBarLabel({ x, y, text, size = "small" }) {
-  const labelText = Array.isArray(text) ? text[0] : text;
-  if (!labelText) return null;
+const MONTH_FULL_NAMES = {
+  Jan: "January",
+  Feb: "February",
+  Mar: "March",
+  Apr: "April",
+  May: "May",
+  Jun: "June",
+  Jul: "July",
+  Aug: "August",
+  Sep: "September",
+  Oct: "October",
+  Nov: "November",
+  Dec: "December",
+};
 
-  const dimension = size === "medium" ? 30 : 26;
-  const scale = dimension / 100;
-  const translateX = x - dimension / 2;
-  const translateY = y - dimension - 6;
+const WEEKDAY_FULL_NAMES = {
+  Mon: "Monday",
+  Tue: "Tuesday",
+  Wed: "Wednesday",
+  Thu: "Thursday",
+  Fri: "Friday",
+  Sat: "Saturday",
+  Sun: "Sunday",
+};
 
-  return (
-    <G transform={`translate(${translateX}, ${translateY}) scale(${scale})`}>
-      <Polygon points={HEX_POINTS} fill={palette.white} stroke={palette.gold} strokeWidth={3} />
-      <SvgText
-        x={50}
-        y={60}
-        textAnchor="middle"
-        fontSize={size === "medium" ? 32 : 28}
-        fontFamily={fonts.bodyBold}
-        fill={palette.goldDeep}
-      >
-        {labelText}
-      </SvgText>
-    </G>
-  );
-}
+const formatCount = (value, noun) => {
+  const safe = Number(value) || 0;
+  const pluralized = safe === 1 ? noun : `${noun}s`;
+  return `${safe} ${pluralized}`;
+};
 
-function YAxisLabels({ labels, height, width = 48 }) {
-  const formatTick = useCallback((tick) => {
-    if (Number.isInteger(tick)) return `${tick}`;
-    const rounded = Number(tick.toFixed(1));
-    return `${rounded}`;
-  }, []);
+function ReadingPatternsCard({ monthlyData, weeklyData, totalYearReadings, loading }) {
+  const insights = useMemo(() => {
+    const totalPhrase = `You cast ${totalYearReadings || 0} readings over the last 12 months.`;
 
-  return (
-    <View style={[stylesInsights.yAxisColumn, { height, width }]}>
-      {labels.map((_, index) => {
-        const reversedIndex = labels.length - 1 - index;
-        const tick = labels[reversedIndex];
-        return (
-          <Text key={`y-label-${reversedIndex}`} style={stylesInsights.yAxisLabel}>
-            {formatTick(tick)}
-          </Text>
-        );
-      })}
-    </View>
-  );
-}
-
-function ChartWithYAxis({ labels, chartHeight, chartWidth, children, yAxisWidth = 48 }) {
-  return (
-    <View style={[stylesInsights.chartRow, { height: chartHeight }]}> 
-      <YAxisLabels labels={labels} height={chartHeight} width={yAxisWidth} />
-      <View style={[stylesInsights.chartContent, { height: chartHeight, width: chartWidth }]}>
-        {children}
-      </View>
-    </View>
-  );
-}
-
-function useInsightsChartDimensions(styleRef, minWidth = 200, yAxisWidth = 48) {
-  const { width: windowWidth } = useWindowDimensions();
-  const baseWidth = Dimensions.get("window").width;
-  const measuredWidth = windowWidth || baseWidth;
-  const horizontalPadding = theme.space(3) * 2 + theme.space(2) * 2;
-  const rawWidth = Math.max(0, measuredWidth - horizontalPadding - yAxisWidth);
-  const chartWidth = Math.max(minWidth, rawWidth);
-  const flattenedStyle = StyleSheet.flatten(styleRef) || {};
-  const chartHeight = flattenedStyle.height || flattenedStyle.minHeight || 180;
-  return { chartWidth, chartHeight, yAxisWidth };
-}
-
-function buildYAxisTicks(values, sections = 4) {
-  const maxValue = Math.max(...values, 0);
-  if (maxValue <= 0) {
-    const labels = Array.from({ length: sections + 1 }, (_, index) => index);
-    return { labels, maxValue: sections, sections };
-  }
-
-  const roughStep = maxValue / sections;
-  const magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(roughStep, 1))));
-  const normalizedStep = Math.max(1, Math.ceil(roughStep / magnitude) * magnitude);
-  const targetMax = normalizedStep * sections;
-  const labels = Array.from({ length: sections + 1 }, (_, index) => index * normalizedStep);
-
-  return { labels, maxValue: targetMax, sections };
-}
-
-function computeBarLayout(chartWidth, itemCount) {
-  const safeCount = Math.max(itemCount, 1);
-  const availableWidth = Math.max(chartWidth - theme.space(4), 200);
-  const estimatedBarWidth = availableWidth / (safeCount * 2.4);
-  const barWidth = Math.min(36, Math.max(16, estimatedBarWidth));
-  const slotWidth = availableWidth / safeCount;
-  const barPercentage = Math.min(0.8, Math.max(0.32, barWidth / Math.max(slotWidth, 1)));
-
-  return { barPercentage, slotWidth, barWidth };
-}
-
-function buildChartKitConfig(barPercentage = 0.45) {
-  return {
-    backgroundColor: palette.parchmentA,
-    backgroundGradientFrom: palette.parchmentA,
-    backgroundGradientTo: palette.parchmentA,
-    decimalPlaces: 0,
-    barPercentage,
-    color: () => palette.gold,
-    labelColor: () => palette.inkMuted,
-    fillShadowGradient: palette.gold,
-    fillShadowGradientOpacity: 1,
-    propsForBackgroundLines: {
-      stroke: palette.border,
-      strokeWidth: StyleSheet.hairlineWidth,
-    },
-    propsForLabels: {
-      fontFamily: fonts.body,
-      fontSize: 12,
-    },
-  };
-}
-
-function WeeklyChart({ data, loading }) {
-  const chartData = useMemo(() => (Array.isArray(data) && data.length ? data : MOCK_WEEKLY), [data]);
-  const hasData = chartData.some((item) => (item?.readings || 0) > 0);
-  const progress = useChartProgress([JSON.stringify(chartData)], loading || !hasData);
-  const animatedValues = chartData.map((item) => (hasData ? item.readings * progress : 0));
-  const { chartWidth, chartHeight, yAxisWidth } = useInsightsChartDimensions(stylesInsights.barChart);
-  const rawValues = chartData.map((item) => item?.readings || 0);
-  const { labels: yAxisLabels } = useMemo(() => buildYAxisTicks(rawValues, 4), [rawValues]);
-  const { barPercentage } = useMemo(
-    () => computeBarLayout(chartWidth, chartData.length),
-    [chartWidth, chartData.length]
-  );
-  const chartKitData = useMemo(
-    () => ({
-      labels: chartData.map((item) => item?.weekday || ""),
-      datasets: [
-        {
-          data: animatedValues,
-        },
-      ],
-    }),
-    [chartData, animatedValues]
-  );
-
-  if (loading) {
-    return <ShimmerPlaceholder height={200} style={stylesInsights.chartPlaceholder} />;
-  }
-
-  if (!hasData) {
-    return (
-      <View style={stylesInsights.chartEmpty}>
-        <Text style={stylesInsights.chartEmptyText}>No readings yet</Text>
-      </View>
+    const mostActiveMonth = (monthlyData || []).reduce(
+      (acc, entry) => {
+        if ((entry?.readings || 0) > (acc?.readings || 0)) return entry;
+        return acc;
+      },
+      { month: null, readings: 0 }
     );
-  }
 
-  return (
-    <ChartWithYAxis
-      labels={yAxisLabels}
-      chartHeight={chartHeight}
-      chartWidth={chartWidth}
-      yAxisWidth={yAxisWidth}
-    >
-      <BarChart
-        data={chartKitData}
-        width={chartWidth}
-        height={chartHeight}
-        fromZero
-        segments={yAxisLabels.length - 1}
-        chartConfig={buildChartKitConfig(barPercentage)}
-        style={stylesInsights.barChart}
-        showValuesOnTopOfBars={false}
-        withCustomBarColorFromData={false}
-        flatColor
-        barPercentage={barPercentage}
-        withHorizontalLabels={false}
-        verticalLabelRotation={0}
-        formatYLabel={() => ""}
-        renderBar={({ x, y, width, height, index }) => (
-          <G key={`weekly-bar-${index}`}>
-            <SvgRect
-              x={x}
-              y={y}
-              rx={8}
-              width={width}
-              height={height}
-              fill={palette.gold}
-            />
-            <HexagonBarLabel
-              x={x + width / 2}
-              y={y}
-              text={rawValues[index] > 0 ? `${Math.round(rawValues[index])}` : null}
-              size="medium"
-            />
-          </G>
-        )}
-      />
-    </ChartWithYAxis>
-  );
-}
-
-function MonthlyChart({ data, loading }) {
-  const chartData = useMemo(() => (Array.isArray(data) && data.length ? data : MOCK_MONTHLY), [data]);
-  const hasData = chartData.some((item) => (item?.readings || 0) > 0);
-  const progress = useChartProgress([JSON.stringify(chartData)], loading || !hasData);
-  const animatedValues = chartData.map((item) => (hasData ? item.readings * progress : 0));
-  const { chartWidth, chartHeight, yAxisWidth } = useInsightsChartDimensions(
-    stylesInsights.barChartTall,
-    220
-  );
-  const rawValues = chartData.map((item) => item?.readings || 0);
-  const { labels: yAxisLabels } = useMemo(() => buildYAxisTicks(rawValues, 5), [rawValues]);
-  const { barPercentage } = useMemo(
-    () => computeBarLayout(chartWidth, chartData.length),
-    [chartWidth, chartData.length]
-  );
-  const chartKitData = useMemo(
-    () => ({
-      labels: chartData.map((item) => item?.month || ""),
-      datasets: [
-        {
-          data: animatedValues,
-        },
-      ],
-    }),
-    [chartData, animatedValues]
-  );
-
-  if (loading) {
-    return <ShimmerPlaceholder height={220} style={stylesInsights.chartPlaceholder} />;
-  }
-
-  if (!hasData) {
-    return (
-      <View style={stylesInsights.chartEmpty}>
-        <Text style={stylesInsights.chartEmptyText}>No readings yet</Text>
-      </View>
+    const mostActiveDay = (weeklyData || []).reduce(
+      (acc, entry) => {
+        if ((entry?.readings || 0) > (acc?.readings || 0)) return entry;
+        return acc;
+      },
+      { weekday: null, readings: 0 }
     );
-  }
 
-  return (
-    <ChartWithYAxis
-      labels={yAxisLabels}
-      chartHeight={chartHeight}
-      chartWidth={chartWidth}
-      yAxisWidth={yAxisWidth}
-    >
-      <BarChart
-        data={chartKitData}
-        width={chartWidth}
-        height={chartHeight}
-        fromZero
-        segments={yAxisLabels.length - 1}
-        chartConfig={buildChartKitConfig(barPercentage)}
-        style={stylesInsights.barChartTall}
-        showValuesOnTopOfBars={false}
-        withCustomBarColorFromData={false}
-        flatColor
-        barPercentage={barPercentage}
-        withHorizontalLabels={false}
-        verticalLabelRotation={12}
-        xLabelsOffset={6}
-        formatYLabel={() => ""}
-        renderBar={({ x, y, width, height, index }) => (
-          <G key={`monthly-bar-${index}`}>
-            <SvgRect
-              x={x}
-              y={y}
-              rx={8}
-              width={width}
-              height={height}
-              fill={palette.gold}
-            />
-            <HexagonBarLabel
-              x={x + width / 2}
-              y={y}
-              text={rawValues[index] > 0 ? `${Math.round(rawValues[index])}` : null}
-            />
-          </G>
-        )}
-      />
-    </ChartWithYAxis>
-  );
-}
+    const phrases = [totalPhrase];
 
-function TopCastsChart({ data, loading }) {
-  const chartData = useMemo(() => {
-    const base = Array.isArray(data) ? data : [];
-
-    const sorted = [...base]
-      .filter((item) =>
-        item && typeof item.total_casts === "number" && item.hexagram_primary != null
-      )
-      .map((item) => ({
-        hexagram_primary: Number(item.hexagram_primary),
-        total_casts: Number(item.total_casts) || 0,
-      }))
-      .sort((a, b) => (b.total_casts || 0) - (a.total_casts || 0));
-
-    const trimmed = sorted.slice(0, 5);
-    const padded = [...trimmed];
-    while (padded.length < 5) {
-      padded.push({ hexagram_primary: null, total_casts: 0 });
+    if (mostActiveMonth?.month && mostActiveMonth.readings > 0) {
+      const name = MONTH_FULL_NAMES[mostActiveMonth.month] || mostActiveMonth.month;
+      phrases.push(`Your most active month was ${name}.`);
     }
-    return padded;
-  }, [data]);
-  const hasData = chartData.some((item) => (item?.total_casts || 0) > 0);
-  const progress = useChartProgress([JSON.stringify(chartData)], loading || !hasData);
-  const animatedValues = chartData.map((item) =>
-    hasData ? (item.total_casts || 0) * progress : 0
-  );
-  const { chartWidth, chartHeight, yAxisWidth } = useInsightsChartDimensions(stylesInsights.barChart);
-  const rawValues = chartData.map((item) => item.total_casts || 0);
-  const { labels: yAxisLabels } = useMemo(() => buildYAxisTicks(rawValues, 4), [rawValues]);
-  const { barPercentage } = useMemo(
-    () => computeBarLayout(chartWidth, chartData.length),
-    [chartWidth, chartData.length]
-  );
-  const chartKitData = useMemo(
-    () => ({
-      labels: chartData.map((item) =>
-        item?.hexagram_primary != null ? `Hex ${item.hexagram_primary}` : ""
-      ),
-      datasets: [
-        {
-          data: animatedValues,
-        },
-      ],
-    }),
-    [chartData, animatedValues]
-  );
 
-  if (loading) {
-    return <ShimmerPlaceholder height={220} style={stylesInsights.chartPlaceholder} />;
-  }
+    if (mostActiveDay?.weekday && mostActiveDay.readings > 0) {
+      const name = WEEKDAY_FULL_NAMES[mostActiveDay.weekday] || mostActiveDay.weekday;
+      phrases.push(`You tend to read most often on ${name}s.`);
+    }
 
-  if (!hasData) {
-    return (
-      <View style={stylesInsights.chartEmpty}>
-        <Text style={stylesInsights.chartEmptyText}>
-          You haven’t cast enough hexagrams yet to generate insights.
-        </Text>
-      </View>
-    );
-  }
+    if (phrases.length === 1) {
+      phrases.push("Start a new reading to reveal more about your rhythm.");
+    }
+
+    return phrases;
+  }, [monthlyData, totalYearReadings, weeklyData]);
 
   return (
-    <ChartWithYAxis
-      labels={yAxisLabels}
-      chartHeight={chartHeight}
-      chartWidth={chartWidth}
-      yAxisWidth={yAxisWidth}
-    >
-      <BarChart
-        data={chartKitData}
-        width={chartWidth}
-        height={chartHeight}
-        fromZero
-        segments={yAxisLabels.length - 1}
-        chartConfig={buildChartKitConfig(barPercentage)}
-        style={stylesInsights.barChartTall}
-        showValuesOnTopOfBars={false}
-        withCustomBarColorFromData={false}
-        flatColor
-        barPercentage={barPercentage}
-        withHorizontalLabels={false}
-        verticalLabelRotation={12}
-        xLabelsOffset={4}
-        formatYLabel={() => ""}
-        renderBar={({ x, y, width, height, index }) => (
-          <G key={`top-bar-${index}`}>
-            <SvgRect
-              x={x}
-              y={y}
-              rx={8}
-              width={width}
-              height={height}
-              fill={palette.gold}
-            />
-            <HexagonBarLabel
-              x={x + width / 2}
-              y={y}
-              text={rawValues[index] > 0 ? `${Math.round(rawValues[index])}` : null}
-              size="small"
-            />
-          </G>
-        )}
-      />
-    </ChartWithYAxis>
+    <View style={stylesInsights.chartCard}>
+      <Text style={stylesInsights.sectionTitle}>Your Reading Patterns</Text>
+      {loading ? (
+        <View style={stylesInsights.paragraphStack}>
+          <ShimmerPlaceholder height={18} style={stylesInsights.paragraphShimmer} />
+          <ShimmerPlaceholder height={18} style={stylesInsights.paragraphShimmer} />
+          <ShimmerPlaceholder height={18} style={stylesInsights.paragraphShimmer} />
+        </View>
+      ) : (
+        insights.map((line, index) => (
+          <Text key={`insight-line-${index}`} style={stylesInsights.paragraphText}>
+            {line}
+          </Text>
+        ))
+      )}
+    </View>
   );
 }
 
-function HexagramChartExample() {
-  const { chartWidth, chartHeight, yAxisWidth } = useInsightsChartDimensions(stylesInsights.barChart);
-  const values = useMemo(() => DEMO_HEXAGRAM_OCCURRENCES.map((item) => item.total), []);
-  const { labels: yAxisLabels } = useMemo(() => buildYAxisTicks(values, 4), [values]);
-  const { barPercentage } = useMemo(
-    () => computeBarLayout(chartWidth, DEMO_HEXAGRAM_OCCURRENCES.length),
-    [chartWidth]
-  );
-  const chartKitData = useMemo(
-    () => ({
-      labels: DEMO_HEXAGRAM_OCCURRENCES.map((item) => `Hex ${item.hexagram}`),
-      datasets: [
-        {
-          data: DEMO_HEXAGRAM_OCCURRENCES.map((item) => item.total),
-        },
-      ],
-    }),
-    []
+function TopHexagramsTextList({ data, loading, hexagrams }) {
+  const topFive = useMemo(() => {
+    if (!data?.length) return [];
+    return data
+      .filter((item) => item?.hexagram_primary != null)
+      .map((item) => ({
+        number: Number(item.hexagram_primary),
+        total: Number(item.total_casts) || 0,
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+  }, [data]);
+
+  const lookupName = useCallback(
+    (number) => getHexagramNameByNumber(hexagrams, number) || "Unknown",
+    [hexagrams]
   );
 
   return (
-    <View>
-      <Text style={stylesInsights.sectionTitle}>Hexagram occurrences (example)</Text>
-      <Text style={stylesInsights.sectionCaption}>
-        Self-contained demo using react-native-chart-kit for reference.
-      </Text>
-      <ChartWithYAxis
-        labels={yAxisLabels}
-        chartHeight={chartHeight}
-        chartWidth={chartWidth}
-        yAxisWidth={yAxisWidth}
+    <View style={stylesInsights.chartCard}>
+      <Text style={stylesInsights.sectionTitle}>Top Hexagrams</Text>
+      {loading ? (
+        <View>
+          {[...Array(3)].map((_, index) => (
+            <ShimmerPlaceholder
+              key={`hexagram-shimmer-${index}`}
+              height={18}
+              style={stylesInsights.listShimmer}
+            />
+          ))}
+        </View>
+      ) : topFive.length ? (
+        <View style={stylesInsights.listContainer}>
+          {topFive.map((item, index) => (
+            <View key={`top-hex-${item.number}-${index}`} style={stylesInsights.listRow}>
+              <Text style={stylesInsights.listIndex}>{index + 1}.</Text>
+              <View style={stylesInsights.listContent}>
+                <Text style={stylesInsights.listLabel}>
+                  Hexagram {item.number} — {lookupName(item.number)}
+                </Text>
+                <Text style={stylesInsights.listValue}>{formatCount(item.total, "time")}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text style={stylesInsights.chartEmptyText}>
+          Begin casting to see which hexagrams appear most often.
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function MonthlyActivityRow({ data, loading }) {
+  return (
+    <View style={stylesInsights.chartCard}>
+      <Text style={stylesInsights.sectionTitle}>Monthly Activity (Past Year)</Text>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={stylesInsights.monthScroller}
       >
-        <BarChart
-          data={chartKitData}
-          width={chartWidth}
-          height={chartHeight}
-          fromZero
-          segments={yAxisLabels.length - 1}
-          chartConfig={buildChartKitConfig(barPercentage)}
-          style={stylesInsights.barChart}
-          showValuesOnTopOfBars={false}
-          withCustomBarColorFromData={false}
-          flatColor
-          barPercentage={barPercentage}
-          withHorizontalLabels={false}
-          verticalLabelRotation={10}
-          xLabelsOffset={4}
-          formatYLabel={() => ""}
-          renderBar={({ x, y, width, height, index }) => (
-            <G key={`demo-bar-${index}`}>
-              <SvgRect
-                x={x}
-                y={y}
-                rx={8}
-                width={width}
-                height={height}
-                fill={palette.gold}
+        {loading
+          ? MONTH_KEYS.map((month) => (
+              <ShimmerPlaceholder
+                key={`month-${month}`}
+                height={36}
+                style={stylesInsights.monthBadgeShimmer}
               />
-              <HexagonBarLabel
-                x={x + width / 2}
-                y={y}
-                text={`${Math.round(DEMO_HEXAGRAM_OCCURRENCES[index].total)}`}
-                size="small"
-              />
-            </G>
-          )}
-        />
-      </ChartWithYAxis>
+            ))
+          : data.map((item) => (
+              <View key={`month-pill-${item.month}`} style={stylesInsights.monthBadge}>
+                <Text style={stylesInsights.monthLabel}>{item.month}</Text>
+                <View style={stylesInsights.monthPill}>
+                  <Text style={stylesInsights.monthValue}>{item.readings || 0}</Text>
+                </View>
+              </View>
+            ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+function MilestonesCard({ streak, summary, monthlyData, loading }) {
+  const mostActiveMonth = useMemo(() => {
+    return (monthlyData || []).reduce(
+      (acc, entry) => {
+        if ((entry?.readings || 0) > (acc?.readings || 0)) return entry;
+        return acc;
+      },
+      { month: null, readings: 0 }
+    );
+  }, [monthlyData]);
+
+  const firstActiveMonth = useMemo(() => {
+    return (monthlyData || []).find((entry) => (entry?.readings || 0) > 0) || null;
+  }, [monthlyData]);
+
+  const lifetimeReadings = summary?.total_readings || 0;
+
+  const milestoneItems = [
+    {
+      icon: "📘",
+      label: "First recorded reading",
+      value: firstActiveMonth
+        ? `${MONTH_FULL_NAMES[firstActiveMonth.month] || firstActiveMonth.month}`
+        : "Not yet recorded",
+    },
+    {
+      icon: "🔥",
+      label: "Longest streak",
+      value: streak ? `${streak} days` : "Not started",
+    },
+    {
+      icon: "⭐",
+      label: "Most active month",
+      value:
+        mostActiveMonth?.month && mostActiveMonth.readings > 0
+          ? `${MONTH_FULL_NAMES[mostActiveMonth.month] || mostActiveMonth.month}`
+          : "—",
+    },
+    {
+      icon: "🌕",
+      label: "Lifetime readings",
+      value: lifetimeReadings.toString(),
+    },
+  ];
+
+  return (
+    <View style={stylesInsights.chartCard}>
+      <Text style={stylesInsights.sectionTitle}>Milestones</Text>
+      {loading ? (
+        <View style={stylesInsights.milestoneGrid}>
+          {[...Array(4)].map((_, index) => (
+            <ShimmerPlaceholder
+              key={`milestone-shimmer-${index}`}
+              height={48}
+              style={stylesInsights.milestoneShimmer}
+            />
+          ))}
+        </View>
+      ) : (
+        <View style={stylesInsights.milestoneGrid}>
+          {milestoneItems.map((item) => (
+            <View key={item.label} style={stylesInsights.milestoneBadge}>
+              <Text style={stylesInsights.milestoneIcon}>{item.icon}</Text>
+              <View style={stylesInsights.milestoneTextGroup}>
+                <Text style={stylesInsights.milestoneLabel}>{item.label}</Text>
+                <Text style={stylesInsights.milestoneValue}>{item.value}</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -1710,7 +1453,6 @@ function HexagramChartExample() {
 function InsightsOverviewScreen() {
   const { isPremium } = useAuth();
   const premiumMember = Boolean(isPremium);
-  const navigation = useNavigation();
   const { premiumPriceString } = useRevenueCat();
   const {
     data: summary,
@@ -1771,10 +1513,13 @@ function InsightsOverviewScreen() {
 
   const mostDrawnName = useMemo(() => {
     if (!summary?.most_drawn_hexagram) return "";
-    return (
-      getHexagramNameByNumber(hexagrams, summary.most_drawn_hexagram) || "Unknown"
-    );
+    return getHexagramNameByNumber(hexagrams, summary.most_drawn_hexagram) || "Unknown";
   }, [hexagrams, summary?.most_drawn_hexagram]);
+
+  const totalYearReadings = useMemo(
+    () => (monthlyData || []).reduce((sum, entry) => sum + (entry?.readings || 0), 0),
+    [monthlyData]
+  );
 
   const refetchAll = useCallback(() => {
     refetchSummary();
@@ -1902,7 +1647,7 @@ function InsightsOverviewScreen() {
           ]}
           showsVerticalScrollIndicator={false}
         >
-          <Text style={stylesInsights.screenTitle}>Insights Overview</Text>
+          <Text style={stylesInsights.screenTitle}>Insight Overview</Text>
           <Text style={stylesInsights.screenSubtitle}>
             A reflective glance at your journey with the I Ching.
           </Text>
@@ -1999,28 +1744,34 @@ function InsightsOverviewScreen() {
         </MotionView>
 
         <MotionView style={stylesInsights.chartCard} {...motionProps(160)}>
-          <Text style={stylesInsights.sectionTitle}>Weekly readings</Text>
-          <Text style={stylesInsights.sectionCaption}>Mon to Sun</Text>
-          <WeeklyChart data={weeklyData} loading={weeklyLoading} />
+          <ReadingPatternsCard
+            monthlyData={monthlyData}
+            weeklyData={weeklyData}
+            totalYearReadings={totalYearReadings}
+            loading={monthlyLoading || weeklyLoading}
+          />
         </MotionView>
 
         <MotionView style={stylesInsights.chartCard} {...motionProps(200)}>
-          <Text style={stylesInsights.sectionTitle}>Monthly readings</Text>
-          <Text style={stylesInsights.sectionCaption}>Past 12 months</Text>
-          <MonthlyChart data={monthlyData} loading={monthlyLoading} />
+          <TopHexagramsTextList
+            data={topCastsData}
+            loading={topCastsLoading}
+            hexagrams={hexagrams}
+          />
         </MotionView>
 
         <MotionView style={stylesInsights.chartCard} {...motionProps(240)}>
-          <Text style={stylesInsights.sectionTitle}>Top 5 casts</Text>
-          <Text style={stylesInsights.sectionCaption}>Most frequent hexagrams</Text>
-          <TopCastsChart data={topCastsData} loading={topCastsLoading} />
+          <MonthlyActivityRow data={monthlyData} loading={monthlyLoading} />
         </MotionView>
 
-        {__DEV__ ? (
-          <MotionView style={stylesInsights.chartCard} {...motionProps(280)}>
-            <HexagramChartExample />
-          </MotionView>
-        ) : null}
+        <MotionView style={stylesInsights.chartCard} {...motionProps(280)}>
+          <MilestonesCard
+            streak={streak}
+            summary={summary}
+            monthlyData={monthlyData}
+            loading={summaryLoading || streakLoading || monthlyLoading}
+          />
+        </MotionView>
       </ScrollView>
     </LinearGradient>
   );
@@ -2159,46 +1910,127 @@ const stylesInsights = StyleSheet.create({
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
   },
-  barChart: {
-    height: 180,
+  paragraphStack: {
+    gap: theme.space(1),
   },
-  barChartTall: {
-    height: 220,
+  paragraphShimmer: {
+    marginBottom: theme.space(0.5),
+    borderRadius: 8,
   },
-  chartRow: {
+  paragraphText: {
+    fontFamily: fonts.body,
+    fontSize: 15,
+    color: palette.ink,
+    lineHeight: 22,
+    marginBottom: theme.space(0.5),
+  },
+  listContainer: {
+    marginTop: theme.space(1),
+  },
+  listRow: {
     flexDirection: "row",
-    alignItems: "flex-end",
+    alignItems: "flex-start",
+    paddingVertical: theme.space(0.75),
   },
-  chartContent: {
+  listIndex: {
+    fontFamily: fonts.bodyBold,
+    color: palette.ink,
+    marginRight: theme.space(1),
+  },
+  listContent: {
     flex: 1,
   },
-  yAxisColumn: {
-    justifyContent: "space-between",
-    paddingRight: theme.space(1),
-    alignItems: "flex-end",
-  },
-  yAxisLabel: {
+  listLabel: {
     fontFamily: fonts.body,
-    fontSize: 12,
-    color: palette.inkMuted,
-  },
-  xAxisLabel: {
-    fontFamily: fonts.body,
-    fontSize: 12,
-    color: palette.inkMuted,
-  },
-  xAxisLabelBold: {
-    fontFamily: fonts.bodyBold,
-    fontSize: 12,
+    fontSize: 15,
     color: palette.ink,
   },
-  chartPlaceholder: {
-    borderRadius: theme.radius,
+  listValue: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 14,
+    color: palette.goldDeep,
+    marginTop: 2,
   },
-  chartEmpty: {
+  listShimmer: {
+    marginBottom: theme.space(1),
+    borderRadius: 8,
+  },
+  monthScroller: {
+    paddingVertical: theme.space(0.5),
+  },
+  monthBadge: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: theme.space(2),
+    backgroundColor: palette.white,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 14,
+    paddingHorizontal: theme.space(1),
+    paddingVertical: theme.space(0.75),
+    marginRight: theme.space(1),
+    shadowColor: palette.goldDeep,
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  monthLabel: {
+    fontFamily: fonts.bodyBold,
+    color: palette.ink,
+    marginRight: theme.space(0.75),
+  },
+  monthPill: {
+    backgroundColor: palette.goldLight,
+    borderRadius: 12,
+    paddingHorizontal: theme.space(1),
+    paddingVertical: 4,
+  },
+  monthValue: {
+    fontFamily: fonts.bodyBold,
+    color: palette.goldDeep,
+  },
+  monthBadgeShimmer: {
+    width: 70,
+    borderRadius: 14,
+    marginRight: theme.space(1),
+  },
+  milestoneGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: theme.space(1),
+  },
+  milestoneBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: palette.white,
+    borderRadius: 14,
+    paddingVertical: theme.space(1),
+    paddingHorizontal: theme.space(1.25),
+    borderWidth: 1,
+    borderColor: palette.border,
+    minWidth: 150,
+    flex: 1,
+  },
+  milestoneIcon: {
+    fontSize: 18,
+    marginRight: theme.space(1),
+  },
+  milestoneTextGroup: {
+    flex: 1,
+  },
+  milestoneLabel: {
+    fontFamily: fonts.body,
+    color: palette.inkMuted,
+    fontSize: 13,
+  },
+  milestoneValue: {
+    fontFamily: fonts.bodyBold,
+    color: palette.ink,
+    fontSize: 15,
+    marginTop: 2,
+  },
+  milestoneShimmer: {
+    borderRadius: 12,
+    marginBottom: theme.space(1),
   },
   chartEmptyText: {
     fontFamily: fonts.body,
