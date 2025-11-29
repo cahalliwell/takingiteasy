@@ -1176,10 +1176,15 @@ function SummaryCard({
       ]}
       {...motionProps(delay)}
     >
-      <Text style={stylesInsights.summaryLabel}>{title}</Text>
-      {subtitle ? <Text style={stylesInsights.summarySubtitle}>{subtitle}</Text> : null}
+      <View style={stylesInsights.summaryHeader}>
+        <Text style={stylesInsights.summaryLabel}>{title}</Text>
+        {subtitle ? <Text style={stylesInsights.summarySubtitle}>{subtitle}</Text> : null}
+      </View>
       {loading ? (
-        <ShimmerPlaceholder height={32} style={stylesInsights.summaryPlaceholder} />
+        <ShimmerPlaceholder
+          height={32}
+          style={[stylesInsights.summaryPlaceholder, stylesInsights.summaryValuePlaceholder]}
+        />
       ) : (
         <Text style={stylesInsights.summaryValue}>{displayValue}</Text>
       )}
@@ -1813,6 +1818,7 @@ const stylesInsights = StyleSheet.create({
     flex: 1,
     minWidth: 150,
     padding: theme.space(2),
+    minHeight: 150,
     borderRadius: theme.radius,
     borderWidth: 1,
     backgroundColor: palette.card,
@@ -1821,6 +1827,7 @@ const stylesInsights = StyleSheet.create({
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
     elevation: 3,
+    justifyContent: "space-between",
   },
   summaryCardLeft: {
     marginRight: theme.space(1),
@@ -1843,6 +1850,10 @@ const stylesInsights = StyleSheet.create({
     color: palette.inkMuted,
     marginTop: 4,
   },
+  summaryHeader: {
+    minHeight: 52,
+    justifyContent: "flex-start",
+  },
   summaryValue: {
     fontFamily: fonts.title,
     fontSize: 32,
@@ -1851,6 +1862,9 @@ const stylesInsights = StyleSheet.create({
   },
   summaryPlaceholder: {
     marginTop: theme.space(1),
+  },
+  summaryValuePlaceholder: {
+    alignSelf: "flex-start",
   },
   counterCard: {
     backgroundColor: palette.card,
